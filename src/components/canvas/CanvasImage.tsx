@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { Group, Image as KonvaImage, Rect } from 'react-konva';
 import Konva from 'konva';
 import type { ImageElement, Slide } from '../../types';
 import { useHtmlImage } from '../../hooks/useImage';
-import { adjustmentsToCssFilter } from '../../utils/filters';
+import { computeContainRect } from '../../utils/image';
 
 interface Props {
   element: ImageElement;
@@ -11,69 +11,103 @@ interface Props {
   onSelect: (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onChange: (patch: Partial<ImageElement>) => void;
   isSelected: boolean;
-  /** Panorama crop info if this element should be a "background image" rendered across slides */
-  panoramaCrop?: { x: number; y: number; width: number; height: number };
-  dragBoundFunc?: (id: string, width: number, height: number) => (pos: { x: number; y: number }) => { x: number; y: number };
+  dragBoundFunc?: (
+    id: string,
+    width: number,
+    height: number,
+  ) => (pos: { x: number; y: number }) => { x: number; y: number };
 }
 
 /**
- * Renders an image element. Bitmap rendering uses Konva's native Image, while
- * Lightroom-like adjustments are baked into a CSS filter applied on the parent
- * group — Konva preserves this on rasterization via the export pipeline.
+ * Image element renderer. Konva's `crop` parameter is always set so the
+ * image is never stretched: width/height ratio of the crop matches the
+ * frame, so the rendered image always preserves the photo's aspect.
  *
- * Crop / framing is achieved by using crop offsets on the Konva.Image node,
- * which keeps the original bitmap intact (non-destructive).
+ * Adjustments are applied via Konva's native filter pipeline using a cached
+ * pixel buffer, which guarantees the same output is produced for both the
+ * on-screen preview and the offscreen export renderer.
  */
-export function CanvasImage({ element, onSelect, onChange, panoramaCrop, dragBoundFunc }: Props) {
+function CanvasImageInner({ element, onSelect, onChange, dragBoundFunc }: Props) {
   const image = useHtmlImage(element.src);
   const groupRef = useRef<Konva.Group>(null);
   const imgRef = useRef<Konva.Image>(null);
 
+  // Derive the actual draw rectangle for the image inside its frame.
+  // For 'cover' / 'fill' we draw at the full frame size with a crop that
+  // matches the frame aspect — no stretching.
+  // For 'contain' we shrink the drawn image so it fits inside the frame
+  // and is letterboxed.
+  const draw = useMemo(() => {
+    if (!image) return null;
+    if (element.fitMode === 'contain') {
+      const fit = computeContainRect(
+        element.width,
+        element.height,
+        element.naturalWidth,
+        element.naturalHeight,
+      );
+      return {
+        x: fit.x,
+        y: fit.y,
+        width: fit.width,
+        height: fit.height,
+        crop: { x: 0, y: 0, width: element.naturalWidth, height: element.naturalHeight },
+      };
+    }
+    if (element.fitMode === 'fill') {
+      return {
+        x: 0,
+        y: 0,
+        width: element.width,
+        height: element.height,
+        crop: { x: 0, y: 0, width: element.naturalWidth, height: element.naturalHeight },
+      };
+    }
+    // cover
+    return {
+      x: 0,
+      y: 0,
+      width: element.width,
+      height: element.height,
+      crop: element.crop,
+    };
+  }, [
+    image,
+    element.fitMode,
+    element.width,
+    element.height,
+    element.naturalWidth,
+    element.naturalHeight,
+    element.crop,
+  ]);
+
+  // Apply Lightroom-style preview filters via Konva's cache + filter pipeline.
+  // Cache is invalidated whenever adjustments, crop or geometry change.
   useEffect(() => {
-    if (!groupRef.current) return;
-    // Apply CSS filter on the canvas element via Konva caching trick:
-    // We use Konva filters where supported, plus a node-level filter attr
-    // via the underlying canvas context isn't directly supported; instead
-    // we set `filter` in style for live preview ONLY in the export layer
-    // by leaving raster ops to the export pipeline. For the preview we
-    // simulate by adjusting Konva's built-in filters.
     const node = imgRef.current;
-    if (!node) return;
+    if (!node || !image) return;
     const adj = element.adjustments;
-    node.cache();
-    node.filters([
+    try {
+      node.cache({ pixelRatio: 1.5 });
+    } catch {
+      return;
+    }
+    const filters = [
       Konva.Filters.Brighten,
       Konva.Filters.Contrast,
       Konva.Filters.HSL,
-      Konva.Filters.Blur,
-    ]);
+    ];
+    if (adj.blur > 0) filters.push(Konva.Filters.Blur);
+    if (adj.grayscale > 0) filters.push(Konva.Filters.Grayscale);
+    node.filters(filters as any);
     node.brightness(adj.exposure * 0.4);
     node.contrast(adj.contrast * 80);
     node.saturation(adj.saturation + adj.vibrance * 0.5);
     node.hue(adj.temperature * 12 + adj.tint * 6);
     node.luminance(adj.shadows * 0.15 + adj.highlights * -0.05);
-    node.blurRadius(Math.max(0, adj.blur));
-    if (adj.grayscale > 0) {
-      node.filters([
-        ...node.filters(),
-        Konva.Filters.Grayscale,
-      ]);
-    }
+    if (adj.blur > 0) node.blurRadius(adj.blur);
     node.getLayer()?.batchDraw();
-  }, [
-    element.adjustments,
-    element.adjustments.exposure,
-    element.adjustments.contrast,
-    element.adjustments.saturation,
-    element.adjustments.vibrance,
-    element.adjustments.temperature,
-    element.adjustments.tint,
-    element.adjustments.blur,
-    element.adjustments.grayscale,
-    element.adjustments.shadows,
-    element.adjustments.highlights,
-    image,
-  ]);
+  }, [image, draw, element.adjustments]);
 
   if (!image) {
     return (
@@ -94,9 +128,6 @@ export function CanvasImage({ element, onSelect, onChange, panoramaCrop, dragBou
     );
   }
 
-  const crop = element.crop;
-  const cssFilter = adjustmentsToCssFilter(element.adjustments);
-
   return (
     <Group
       ref={groupRef}
@@ -106,12 +137,12 @@ export function CanvasImage({ element, onSelect, onChange, panoramaCrop, dragBou
       width={element.width}
       height={element.height}
       rotation={element.rotation}
-      offsetX={0}
-      offsetY={0}
       opacity={element.opacity}
       visible={element.visible}
       listening={!element.locked}
-      globalCompositeOperation={element.blendMode === 'normal' ? undefined : (element.blendMode as any)}
+      globalCompositeOperation={
+        element.blendMode === 'normal' ? undefined : (element.blendMode as any)
+      }
       draggable={!element.locked}
       onMouseDown={onSelect}
       onTouchStart={onSelect}
@@ -124,34 +155,39 @@ export function CanvasImage({ element, onSelect, onChange, panoramaCrop, dragBou
       shadowOffsetX={element.shadow?.offsetX}
       shadowOffsetY={element.shadow?.offsetY}
       shadowOpacity={element.shadow?.opacity}
+      clipFunc={
+        element.cornerRadius > 0
+          ? (ctx) => {
+              const r = Math.min(element.cornerRadius, element.width / 2, element.height / 2);
+              ctx.beginPath();
+              ctx.moveTo(r, 0);
+              ctx.lineTo(element.width - r, 0);
+              ctx.arcTo(element.width, 0, element.width, r, r);
+              ctx.lineTo(element.width, element.height - r);
+              ctx.arcTo(element.width, element.height, element.width - r, element.height, r);
+              ctx.lineTo(r, element.height);
+              ctx.arcTo(0, element.height, 0, element.height - r, r);
+              ctx.lineTo(0, r);
+              ctx.arcTo(0, 0, r, 0, r);
+              ctx.closePath();
+            }
+          : undefined
+      }
     >
-      {element.cornerRadius > 0 && (
-        <Rect
-          width={element.width}
-          height={element.height}
-          cornerRadius={element.cornerRadius}
-          fill="rgba(0,0,0,0)"
-          listening={false}
+      {draw && (
+        <KonvaImage
+          ref={imgRef}
+          image={image}
+          x={draw.x}
+          y={draw.y}
+          width={draw.width}
+          height={draw.height}
+          crop={draw.crop}
+          listening={!element.locked}
         />
       )}
-      <KonvaImage
-        ref={imgRef}
-        image={image}
-        width={element.width}
-        height={element.height}
-        crop={
-          panoramaCrop
-            ? panoramaCrop
-            : crop
-              ? { x: crop.x, y: crop.y, width: crop.width, height: crop.height }
-              : undefined
-        }
-        cornerRadius={element.cornerRadius}
-        listening={!element.locked}
-        // CSS filter as a custom attribute consumed by some pipelines
-        // (Konva will draw with image-rendering: auto)
-        {...({ 'data-filter': cssFilter } as object)}
-      />
     </Group>
   );
 }
+
+export const CanvasImage = memo(CanvasImageInner);

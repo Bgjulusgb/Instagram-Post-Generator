@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Ellipse, Group, Line, Rect, RegularPolygon, Star } from 'react-konva';
 import Konva from 'konva';
 import type { ShapeElement } from '../../types';
@@ -9,7 +10,7 @@ interface Props {
   dragBoundFunc?: (id: string, width: number, height: number) => (pos: { x: number; y: number }) => { x: number; y: number };
 }
 
-export function CanvasShape({ element, onSelect, onChange, dragBoundFunc }: Props) {
+function CanvasShapeInner({ element, onSelect, onChange, dragBoundFunc }: Props) {
   const commonProps = {
     fill: element.fill,
     stroke: element.stroke?.color,
@@ -98,3 +99,5 @@ export function CanvasShape({ element, onSelect, onChange, dragBoundFunc }: Prop
     </Group>
   );
 }
+
+export const CanvasShape = memo(CanvasShapeInner);

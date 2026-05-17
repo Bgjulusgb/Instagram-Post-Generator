@@ -188,6 +188,54 @@ export function TextPropertiesPanel({ element }: Props) {
 
       <div className="panel-section">
         <div className="panel-heading">
+          Gradient fill
+          <button
+            onClick={() => {
+              if (element.gradient) updateElement(element.id, { gradient: undefined } as any);
+              else updateElement(element.id, { gradient: { from: '#ffffff', to: '#888888', angle: 135 } } as any);
+            }}
+            className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-ink-200 hover:bg-white/10"
+          >
+            {element.gradient ? 'Remove' : 'Add'}
+          </button>
+        </div>
+        {element.gradient ? (
+          <div className="space-y-2">
+            <ColorInput
+              label="From"
+              value={element.gradient.from}
+              onChange={(v) =>
+                updateElement(element.id, { gradient: { ...element.gradient!, from: v } } as any)
+              }
+            />
+            <ColorInput
+              label="To"
+              value={element.gradient.to}
+              onChange={(v) =>
+                updateElement(element.id, { gradient: { ...element.gradient!, to: v } } as any)
+              }
+            />
+            <Slider
+              label="Angle"
+              value={element.gradient.angle}
+              min={0}
+              max={360}
+              step={1}
+              unit="°"
+              onChange={(v) =>
+                updateElement(element.id, { gradient: { ...element.gradient!, angle: v } } as any)
+              }
+            />
+          </div>
+        ) : (
+          <div className="text-[10px] text-ink-500">
+            Replace the solid color with a two-stop gradient.
+          </div>
+        )}
+      </div>
+
+      <div className="panel-section">
+        <div className="panel-heading">
           Outline
           <button
             onClick={() => {

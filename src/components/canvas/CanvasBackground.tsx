@@ -9,8 +9,9 @@ interface Props {
 }
 
 /**
- * Renders a slide's background fill. Panorama slides project a portion of a
- * larger shared image based on `panoramaIndex` / `panoramaTotal`.
+ * Renders a slide's background. For image backgrounds (including panorama
+ * splits) the crop rectangle is pre-computed by the store using
+ * `computeCoverCrop` so the image always fills the slide without stretching.
  */
 export function CanvasBackground({ slide }: Props) {
   const bg = slide.background;
@@ -21,10 +22,14 @@ export function CanvasBackground({ slide }: Props) {
   useEffect(() => {
     if (!imgNode.current || !image) return;
     if (bg.kind === 'image' && bg.blur > 0) {
-      imgNode.current.cache();
-      imgNode.current.filters([Konva.Filters.Blur]);
-      imgNode.current.blurRadius(bg.blur);
-      imgNode.current.getLayer()?.batchDraw();
+      try {
+        imgNode.current.cache({ pixelRatio: 1 });
+        imgNode.current.filters([Konva.Filters.Blur]);
+        imgNode.current.blurRadius(bg.blur);
+        imgNode.current.getLayer()?.batchDraw();
+      } catch {
+        // ignore cache errors on tiny images
+      }
     } else {
       imgNode.current.clearCache();
       imgNode.current.filters([]);
@@ -33,7 +38,16 @@ export function CanvasBackground({ slide }: Props) {
   }, [bg, image]);
 
   if (bg.kind === 'color') {
-    return <Rect x={0} y={0} width={slide.width} height={slide.height} fill={bg.color} listening={false} />;
+    return (
+      <Rect
+        x={0}
+        y={0}
+        width={slide.width}
+        height={slide.height}
+        fill={bg.color}
+        listening={false}
+      />
+    );
   }
 
   if (bg.kind === 'gradient') {
@@ -58,32 +72,23 @@ export function CanvasBackground({ slide }: Props) {
   }
 
   if (bg.kind === 'image' && image) {
-    let crop: { x: number; y: number; width: number; height: number } | undefined;
-
-    if (slide.panoramaGroupId && slide.panoramaTotal && slide.panoramaIndex != null) {
-      // Distribute the natural image evenly across the panorama group.
-      const part = bg.naturalWidth / slide.panoramaTotal;
-      crop = {
-        x: part * slide.panoramaIndex,
-        y: 0,
-        width: part,
-        height: bg.naturalHeight,
-      };
-    }
-
     return (
       <Group listening={false}>
         <KonvaImage
           ref={imgNode}
           image={image}
+          x={0}
+          y={0}
           width={slide.width}
           height={slide.height}
-          crop={crop}
+          crop={bg.crop}
           listening={false}
         />
       </Group>
     );
   }
 
-  return <Rect x={0} y={0} width={slide.width} height={slide.height} fill="#0a0a0a" listening={false} />;
+  return (
+    <Rect x={0} y={0} width={slide.width} height={slide.height} fill="#0a0a0a" listening={false} />
+  );
 }

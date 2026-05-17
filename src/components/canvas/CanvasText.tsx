@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { Group, Text as KonvaText } from 'react-konva';
 import Konva from 'konva';
 import type { TextElement } from '../../types';
@@ -11,7 +11,7 @@ interface Props {
   dragBoundFunc?: (id: string, width: number, height: number) => (pos: { x: number; y: number }) => { x: number; y: number };
 }
 
-export function CanvasText({ element, onSelect, onChange, onDoubleClick, dragBoundFunc }: Props) {
+function CanvasTextInner({ element, onSelect, onChange, onDoubleClick, dragBoundFunc }: Props) {
   const textRef = useRef<Konva.Text>(null);
 
   useEffect(() => {
@@ -57,7 +57,18 @@ export function CanvasText({ element, onSelect, onChange, onDoubleClick, dragBou
         fontSize={element.fontSize}
         fontFamily={element.fontFamily}
         fontStyle={fontStyle}
-        fill={element.fill}
+        fill={element.gradient ? undefined : element.fill}
+        // Linear gradient text uses the element's bounding box as the gradient
+        // span — start/end derived from the configured angle.
+        fillLinearGradientStartPoint={
+          element.gradient ? gradientStart(element.gradient.angle, element.width, element.height) : undefined
+        }
+        fillLinearGradientEndPoint={
+          element.gradient ? gradientEnd(element.gradient.angle, element.width, element.height) : undefined
+        }
+        fillLinearGradientColorStops={
+          element.gradient ? [0, element.gradient.from, 1, element.gradient.to] : undefined
+        }
         align={element.align}
         lineHeight={element.lineHeight}
         letterSpacing={element.letterSpacing}
@@ -72,3 +83,25 @@ export function CanvasText({ element, onSelect, onChange, onDoubleClick, dragBou
     </Group>
   );
 }
+
+function gradientStart(angle: number, w: number, h: number) {
+  const a = (angle * Math.PI) / 180;
+  const dx = Math.cos(a);
+  const dy = Math.sin(a);
+  const r = Math.max(w, h) / 2;
+  return { x: w / 2 - dx * r, y: h / 2 - dy * r };
+}
+function gradientEnd(angle: number, w: number, h: number) {
+  const a = (angle * Math.PI) / 180;
+  const dx = Math.cos(a);
+  const dy = Math.sin(a);
+  const r = Math.max(w, h) / 2;
+  return { x: w / 2 + dx * r, y: h / 2 + dy * r };
+}
+
+/**
+ * React.memo bails out on shallow-equal props. Combined with stable callbacks
+ * derived in the Canvas, this saves dozens of re-renders per second when only
+ * one element is moving on a slide with many siblings.
+ */
+export const CanvasText = memo(CanvasTextInner);

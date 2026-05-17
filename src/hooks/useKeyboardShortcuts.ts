@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { useEditor } from '../store/editorStore';
+import { useEditor, createImageElement, createTextElement } from '../store/editorStore';
+import { loadImageFile } from '../utils/image';
 
 /**
  * Global keyboard shortcut handler.
@@ -39,6 +40,21 @@ export function useKeyboardShortcuts() {
         e.preventDefault();
         if (editor.selectedElementIds.length > 0)
           editor.duplicateElements(editor.selectedElementIds);
+        return;
+      }
+
+      // Group / Ungroup
+      if (meta && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) editor.ungroupSelection();
+        else editor.groupSelection();
+        return;
+      }
+
+      // Help
+      if (!meta && (e.key === '?' || (e.shiftKey && e.key === '/'))) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('carousel-studio:open-help'));
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {

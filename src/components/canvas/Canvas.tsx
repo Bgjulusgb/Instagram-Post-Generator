@@ -1,23 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Group, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
+import { Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { motion } from 'framer-motion';
-import { useEditor } from '../../store/editorStore';
+import {
+  createImageElement,
+  createShapeElement,
+  createTextElement,
+  useEditor,
+} from '../../store/editorStore';
 import { CanvasBackground } from './CanvasBackground';
 import { CanvasImage } from './CanvasImage';
 import { CanvasShape } from './CanvasShape';
 import { CanvasText } from './CanvasText';
 import { MiniMap } from './MiniMap';
+import { SelectionToolbar } from './SelectionToolbar';
 import { snapPosition } from '../../utils/snap';
-import { createShapeElement, createTextElement } from '../../store/editorStore';
+import { loadImageFile } from '../../utils/image';
 import type { AnyElement, GuideLine } from '../../types';
 
-interface Props {
-  /** A ref the parent can use to access the Stage for export */
-  stageRefHandle: React.MutableRefObject<Konva.Stage | null>;
-}
-
-export function Canvas({ stageRefHandle }: Props) {
+export function Canvas() {
   const slide = useEditor((s) => s.slides.find((sl) => sl.id === s.currentSlideId)!);
   const selectedIds = useEditor((s) => s.selectedElementIds);
   const zoom = useEditor((s) => s.zoom);
@@ -36,6 +37,25 @@ export function Canvas({ stageRefHandle }: Props) {
   const setTool = useEditor((s) => s.setTool);
   const deselectAll = useEditor((s) => s.deselectAll);
   const selectMultiple = useEditor((s) => s.selectMultipleElements);
+  const reCoverImage = useEditor((s) => s.reCoverImage);
+
+  // Lock the Transformer aspect ratio when only images are selected so photos
+  // never stretch with the resize handles. Text/shapes keep free resize.
+  const selectedElements = slide.elements.filter((e) => selectedIds.includes(e.id));
+  const allImages = selectedElements.length > 0 && selectedElements.every((e) => e.type === 'image');
+  const transformerKeepRatio = allImages;
+  const transformerAnchors = allImages
+    ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+    : [
+        'top-left',
+        'top-center',
+        'top-right',
+        'middle-right',
+        'middle-left',
+        'bottom-left',
+        'bottom-center',
+        'bottom-right',
+      ];
 
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -46,13 +66,9 @@ export function Canvas({ stageRefHandle }: Props) {
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(
     null,
   );
+  const [dropActive, setDropActive] = useState(false);
   const selectionStart = useRef<{ x: number; y: number } | null>(null);
   const editingTextId = useRef<string | null>(null);
-
-  // Expose stage to parent
-  useEffect(() => {
-    stageRefHandle.current = stageRef.current;
-  });
 
   // Track container size
   useLayoutEffect(() => {
@@ -362,6 +378,29 @@ export function Canvas({ stageRefHandle }: Props) {
     return lines;
   };
 
+  // Drag images straight onto the canvas — much friendlier than a button.
+  const handleDropFiles = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDropActive(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+    for (const file of files) {
+      try {
+        const data = await loadImageFile(file);
+        const el = createImageElement(
+          data.src,
+          data.naturalWidth,
+          data.naturalHeight,
+          slide.width,
+          slide.height,
+        );
+        addElement(el);
+      } catch {
+        // ignore failed file
+      }
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -373,6 +412,15 @@ export function Canvas({ stageRefHandle }: Props) {
         backgroundPosition: 'center',
         cursor: tool === 'hand' ? 'grab' : tool === 'select' ? 'default' : 'crosshair',
       }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (e.dataTransfer.types.includes('Files')) setDropActive(true);
+      }}
+      onDragLeave={(e) => {
+        // Only clear when leaving the canvas wrapper, not on inner enters
+        if (e.currentTarget === e.target) setDropActive(false);
+      }}
+      onDrop={handleDropFiles}
     >
       <motion.div
         initial={{ opacity: 0 }}
@@ -511,6 +559,8 @@ export function Canvas({ stageRefHandle }: Props) {
               ref={transformerRef}
               ignoreStroke
               rotateEnabled
+              keepRatio={transformerKeepRatio}
+              enabledAnchors={transformerAnchors}
               anchorSize={8}
               anchorCornerRadius={2}
               borderStroke="#ffffff"
@@ -550,8 +600,14 @@ export function Canvas({ stageRefHandle }: Props) {
                     rotation: newRotation,
                   });
                   if (el.type === 'text') {
-                    // For text, scale font size with vertical scale
-                    updateElement(id, { fontSize: Math.max(8, (el as any).fontSize * ((scaleX + scaleY) / 2)) });
+                    // For text, scale font size with the average scale
+                    updateElement(id, {
+                      fontSize: Math.max(8, (el as any).fontSize * ((scaleX + scaleY) / 2)),
+                    });
+                  }
+                  if (el.type === 'image') {
+                    // Re-cover the crop so the photo never stretches in its new frame
+                    reCoverImage(id);
                   }
                 });
               }}
@@ -565,7 +621,26 @@ export function Canvas({ stageRefHandle }: Props) {
         {slide.width} × {slide.height}
       </div>
 
+      <SelectionToolbar
+        containerWidth={containerSize.width}
+        containerHeight={containerSize.height}
+        stageX={stageX}
+        stageY={stageY}
+        zoom={zoom}
+      />
+
       <MiniMap containerWidth={containerSize.width} containerHeight={containerSize.height} />
+
+      {dropActive && (
+        <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-2xl border-2 border-dashed border-white/40 bg-white/[0.04] backdrop-blur-sm">
+          <div className="rounded-xl glass-strong px-4 py-3 text-center">
+            <div className="text-[12px] font-medium text-white">Drop to add photo</div>
+            <div className="mt-0.5 text-[10px] text-ink-400">
+              Multiple files supported — each becomes its own element
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
