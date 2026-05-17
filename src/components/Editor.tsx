@@ -8,6 +8,7 @@ import { ExportDialog } from './ExportDialog';
 import { CarouselPreview } from './CarouselPreview';
 import { SlidesGridModal } from './SlidesGridModal';
 import { HelpModal } from './HelpModal';
+import { SplashScreen } from './SplashScreen';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useClipboardPaste } from '../hooks/useClipboardPaste';
 import { useAutosave } from '../hooks/useAutosave';
@@ -21,6 +22,7 @@ export function Editor() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [hydrating, setHydrating] = useState(true);
 
   useEffect(() => {
     const handler = () => setHelpOpen(true);
@@ -28,18 +30,68 @@ export function Editor() {
     return () =>
       window.removeEventListener('carousel-studio:open-help', handler as EventListener);
   }, []);
+
+  // Native menu bridge — when running inside Electron the system menu can
+  // dispatch actions that we mirror onto the same React state. No-op in
+  // the browser build.
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    const unsubscribe = api.onMenuAction((action) => {
+      switch (action) {
+        case 'file:new': {
+          if (
+            confirm('Start a new project? Unsaved changes will be lost.')
+          ) {
+            useEditor.getState().resetProject();
+          }
+          break;
+        }
+        case 'file:open': {
+          // Delegate to the topbar's open handler via custom event
+          window.dispatchEvent(new CustomEvent('carousel-studio:open-project'));
+          break;
+        }
+        case 'file:save': {
+          window.dispatchEvent(new CustomEvent('carousel-studio:save-project'));
+          break;
+        }
+        case 'file:export': {
+          setExportOpen(true);
+          break;
+        }
+        case 'help:shortcuts': {
+          setHelpOpen(true);
+          break;
+        }
+      }
+    });
+    return unsubscribe;
+  }, []);
   useKeyboardShortcuts();
   useClipboardPaste();
-  const saveStatus = useAutosave();
+  const saveState = useAutosave();
   const loadFromStorage = useEditor((s) => s.loadFromStorage);
 
+  // Async hydration: keep the splash up until the storage backend has had a
+  // chance to load. Prevents the brief flash of the default blank slide.
   useEffect(() => {
-    loadFromStorage();
+    let cancelled = false;
+    void loadFromStorage().finally(() => {
+      if (!cancelled) setHydrating(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadFromStorage]);
+
+  if (hydrating) {
+    return <SplashScreen />;
+  }
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-ink-950">
-      <Topbar saveStatus={saveStatus} onOpenExport={() => setExportOpen(true)} />
+      <Topbar saveState={saveState} onOpenExport={() => setExportOpen(true)} />
 
       <div className="flex min-h-0 flex-1">
         <LeftSidebar />

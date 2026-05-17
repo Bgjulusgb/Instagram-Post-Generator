@@ -17,8 +17,8 @@ import type {
 } from '../types';
 import { DEFAULT_ADJUSTMENTS, SLIDE_FORMATS } from '../types';
 import { computeCoverCrop } from '../utils/image';
+import { storage } from '../utils/storage';
 
-const STORAGE_KEY = 'carousel-studio:project';
 const MAX_HISTORY = 200;
 
 function createBlankSlide(width = 1080, height = 1350, index = 1): Slide {
@@ -96,10 +96,10 @@ interface EditorActions {
   toggleMinimap: () => void;
   toggleSnap: () => void;
 
-  // Persistence
-  loadFromStorage: () => void;
-  saveToStorage: () => void;
-  loadProject: (slides: Slide[]) => void;
+  // Persistence — all storage I/O is async (IndexedDB / filesystem).
+  loadFromStorage: () => Promise<{ ok: boolean; restored: boolean; error?: string }>;
+  saveToStorage: () => Promise<{ ok: boolean; error?: string }>;
+  loadProject: (slides: Slide[], currentSlideId?: string) => void;
   resetProject: () => void;
 
   // Image adjustments
@@ -127,6 +127,11 @@ export interface EditorState extends EditorActions {
 
   /** Bumped on every meaningful change to drive autosave & dependency-free subscribers */
   revision: number;
+
+  /** Bumped only by successful saves; lets the UI distinguish "tried" from "saved" */
+  lastSavedRevision: number;
+  lastSavedAt: number | null;
+  lastSaveError: string | null;
 }
 
 const initialSlide = createBlankSlide(SLIDE_FORMATS[0].width, SLIDE_FORMATS[0].height, 1);
@@ -150,6 +155,9 @@ export const useEditor = create<EditorState>()(
     history: [],
     future: [],
     revision: 0,
+    lastSavedRevision: 0,
+    lastSavedAt: null,
+    lastSaveError: null,
 
     pushHistory: () => {
       set((state) =>
@@ -724,46 +732,70 @@ export const useEditor = create<EditorState>()(
     toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
     toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
 
-    saveToStorage: () => {
+    saveToStorage: async () => {
+      const { slides, currentSlideId, revision } = get();
       try {
-        const { slides } = get();
-        const data = {
+        await storage.saveAutosave({
           version: 1,
           updatedAt: Date.now(),
           slides,
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      } catch {
-        // ignore quota errors
+          currentSlideId,
+        });
+        set({
+          lastSavedRevision: revision,
+          lastSavedAt: Date.now(),
+          lastSaveError: null,
+        });
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Quota-exceeded errors have a recognizable shape on some browsers
+        const friendly =
+          /quota|QuotaExceededError|disk full|ENOSPC/i.test(msg)
+            ? 'Storage is full. Free up space or export your project to a file.'
+            : msg;
+        set({ lastSaveError: friendly });
+        return { ok: false, error: friendly };
       }
     },
 
-    loadFromStorage: () => {
+    loadFromStorage: async () => {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        const data = JSON.parse(raw);
-        if (Array.isArray(data.slides) && data.slides.length > 0) {
-          const migrated = data.slides.map(migrateSlide);
-          set({
-            slides: migrated,
-            currentSlideId: migrated[0].id,
-            selectedElementIds: [],
-            history: [],
-            future: [],
-          });
+        const data = await storage.loadAutosave();
+        if (!data || !Array.isArray(data.slides) || data.slides.length === 0) {
+          return { ok: true, restored: false };
         }
-      } catch {
-        // ignore parse errors
+        const migrated = data.slides.map(migrateSlide);
+        const restoreId =
+          (data.currentSlideId && migrated.find((s) => s.id === data.currentSlideId)?.id) ||
+          migrated[0].id;
+        set({
+          slides: migrated,
+          currentSlideId: restoreId,
+          selectedElementIds: [],
+          history: [],
+          future: [],
+          revision: 0,
+          lastSavedRevision: 0,
+          lastSavedAt: data.updatedAt ?? null,
+          lastSaveError: null,
+        });
+        return { ok: true, restored: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        set({ lastSaveError: `Could not read saved project: ${msg}` });
+        return { ok: false, restored: false, error: msg };
       }
     },
 
-    loadProject: (slides) => {
+    loadProject: (slides, currentSlideId) => {
       if (!Array.isArray(slides) || slides.length === 0) return;
       const migrated = slides.map(migrateSlide);
+      const restoreId =
+        (currentSlideId && migrated.find((s) => s.id === currentSlideId)?.id) || migrated[0].id;
       set({
         slides: migrated,
-        currentSlideId: migrated[0].id,
+        currentSlideId: restoreId,
         selectedElementIds: [],
         history: [],
         future: [],
@@ -780,7 +812,12 @@ export const useEditor = create<EditorState>()(
         history: [],
         future: [],
         revision: get().revision + 1,
+        lastSavedRevision: get().revision + 1,
+        lastSavedAt: null,
+        lastSaveError: null,
       });
+      // Wipe the persisted copy too — keeps the next reload consistent
+      void storage.clearAutosave().catch(() => {});
     },
 
     resetAdjustments: (id) => {

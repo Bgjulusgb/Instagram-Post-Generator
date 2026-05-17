@@ -95,13 +95,13 @@ export function ExportDialog({ open, onClose }: Props) {
 
       if (scope === 'current') {
         const blob = await exportSlideAsBlob(current, options);
-        downloadBlob(blob, `${sanitizeFilename(current.name)}.${formatExtension(format)}`);
+        await downloadBlob(blob, `${sanitizeFilename(current.name)}.${formatExtension(format)}`);
       } else if (scope === 'all-pdf') {
         const blob = await exportSlidesAsPdf(slides, { ...options, format: 'pdf' }, setProgress);
-        downloadBlob(blob, `carousel-${Date.now()}.pdf`);
+        await downloadBlob(blob, `carousel-${Date.now()}.pdf`);
       } else {
         const blob = await exportSlidesAsZip(slides, options, setProgress);
-        downloadBlob(blob, `carousel-${Date.now()}.zip`);
+        await downloadBlob(blob, `carousel-${Date.now()}.zip`);
       }
       onClose();
     } catch (err) {

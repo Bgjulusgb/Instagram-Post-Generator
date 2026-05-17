@@ -11,20 +11,57 @@ import {
   Sparkles,
   HelpCircle,
   ChevronDown,
+  AlertCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEditor } from '../store/editorStore';
 import { Tooltip } from './ui/Tooltip';
 import { exportProjectFile, importProjectFile } from '../utils/project';
 import { downloadBlob } from '../utils/export';
+import { isElectron } from '../utils/storage';
+import type { AutosaveState } from '../hooks/useAutosave';
 import { cn } from '../utils/cn';
 
 interface Props {
-  saveStatus: 'idle' | 'saving' | 'saved';
+  saveState: AutosaveState;
   onOpenExport: () => void;
 }
 
-export function Topbar({ saveStatus, onOpenExport }: Props) {
+export function Topbar({ saveState, onOpenExport }: Props) {
+  // Listen for menu actions from the Electron native menu so the desktop
+  // app's File menu drives the same save/open code paths as the in-app menu.
+  useEffect(() => {
+    const onSave = async () => {
+      const blob = exportProjectFile(useEditor.getState().slides);
+      if (isElectron && window.electronAPI) {
+        const json = await blob.text();
+        await window.electronAPI.saveProjectFile(json, 'carousel-project.json');
+      } else {
+        await downloadBlob(blob, 'carousel-project.json');
+      }
+    };
+    const onOpen = async () => {
+      if (isElectron && window.electronAPI) {
+        const opened = await window.electronAPI.openProjectFile();
+        if (!opened) return;
+        try {
+          const data = JSON.parse(opened.content);
+          if (Array.isArray(data.slides)) {
+            useEditor.getState().loadProject(data.slides, data.currentSlideId);
+          }
+        } catch {
+          alert('Invalid project file');
+        }
+      }
+    };
+    window.addEventListener('carousel-studio:save-project', onSave);
+    window.addEventListener('carousel-studio:open-project', onOpen);
+    return () => {
+      window.removeEventListener('carousel-studio:save-project', onSave);
+      window.removeEventListener('carousel-studio:open-project', onOpen);
+    };
+  }, []);
+
   const zoom = useEditor((s) => s.zoom);
   const setZoom = useEditor((s) => s.setZoom);
   const undo = useEditor((s) => s.undo);
@@ -76,18 +113,44 @@ export function Topbar({ saveStatus, onOpenExport }: Props) {
                 icon={<Save size={13} />}
                 label="Save project file"
                 shortcut="JSON"
-                onClick={() => {
-                  const blob = exportProjectFile(slides);
-                  downloadBlob(blob, 'carousel-project.json');
+                onClick={async () => {
                   setMenuOpen(false);
+                  const blob = exportProjectFile(slides);
+                  if (isElectron && window.electronAPI) {
+                    const json = await blob.text();
+                    const saved = await window.electronAPI.saveProjectFile(
+                      json,
+                      'carousel-project.json',
+                    );
+                    if (saved) {
+                      // no-op; native dialog already confirmed it
+                    }
+                  } else {
+                    downloadBlob(blob, 'carousel-project.json');
+                  }
                 }}
               />
               <FileMenuItem
                 icon={<FolderOpen size={13} />}
                 label="Open project file"
-                onClick={() => {
-                  fileInputRef.current?.click();
+                onClick={async () => {
                   setMenuOpen(false);
+                  if (isElectron && window.electronAPI) {
+                    const opened = await window.electronAPI.openProjectFile();
+                    if (!opened) return;
+                    try {
+                      const data = JSON.parse(opened.content);
+                      if (Array.isArray(data.slides)) {
+                        loadProject(data.slides, data.currentSlideId);
+                      } else {
+                        alert('That file does not look like a Carousel Studio project.');
+                      }
+                    } catch (err) {
+                      alert('Could not parse project file: ' + String(err));
+                    }
+                  } else {
+                    fileInputRef.current?.click();
+                  }
                 }}
               />
               <div className="my-1 h-px bg-white/[0.06]" />
@@ -175,7 +238,7 @@ export function Topbar({ saveStatus, onOpenExport }: Props) {
 
       {/* Right */}
       <div className="flex items-center gap-3">
-        <SaveStatus status={saveStatus} />
+        <SaveStatus state={saveState} />
         <Tooltip label="Keyboard shortcuts" shortcut="?">
           <button
             className="icon-btn"
@@ -307,17 +370,54 @@ function ZoomPicker({
   );
 }
 
-function SaveStatus({ status }: { status: 'idle' | 'saving' | 'saved' }) {
-  const text = status === 'saving' ? 'Saving…' : status === 'saved' ? 'All changes saved' : 'Autosave on';
+function SaveStatus({ state }: { state: AutosaveState }) {
+  const backend = isElectron ? 'Disk' : 'IndexedDB';
+  const text =
+    state.status === 'saving'
+      ? 'Saving…'
+      : state.status === 'pending'
+        ? 'Unsaved changes…'
+        : state.status === 'saved'
+          ? 'All changes saved'
+          : state.status === 'error'
+            ? 'Save failed'
+            : `Autosave · ${backend}`;
+  const dotClass =
+    state.status === 'error'
+      ? 'bg-rose-400'
+      : state.status === 'saving' || state.status === 'pending'
+        ? 'bg-amber-300 animate-pulse'
+        : 'bg-emerald-400/80';
+
+  const lastSaved = state.lastSavedAt
+    ? new Date(state.lastSavedAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    : null;
+
+  const tooltip = state.error
+    ? state.error
+    : lastSaved
+      ? `Last saved ${lastSaved} · ${backend}`
+      : `Autosave ready · ${backend}`;
+
   return (
-    <div className="flex items-center gap-1.5 text-[10px] text-ink-500">
-      <span
+    <Tooltip label={tooltip} side="bottom">
+      <div
         className={cn(
-          'h-1.5 w-1.5 rounded-full transition-colors',
-          status === 'saving' ? 'bg-amber-300 animate-pulse' : 'bg-emerald-400/80',
+          'flex items-center gap-1.5 text-[10px]',
+          state.status === 'error' ? 'text-rose-300' : 'text-ink-500',
         )}
-      />
-      {text}
-    </div>
+      >
+        {state.status === 'error' ? (
+          <AlertCircle size={11} strokeWidth={1.5} />
+        ) : (
+          <span className={cn('h-1.5 w-1.5 rounded-full transition-colors', dotClass)} />
+        )}
+        {text}
+      </div>
+    </Tooltip>
   );
 }

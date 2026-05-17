@@ -195,8 +195,24 @@ export async function exportSlidesAsZip(
   return zip.generateAsync({ type: 'blob', compression: 'STORE' });
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
+/**
+ * Save a blob to the user's machine. In Electron we route through the
+ * native save dialog so the OS picks where the file lands. In the browser
+ * we fall back to `file-saver`, which uses a hidden anchor + download attr.
+ */
+export async function downloadBlob(blob: Blob, filename: string): Promise<string | null> {
+  const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+  if (api?.isElectron) {
+    const bytes = await blob.arrayBuffer();
+    const m = /\.([a-z0-9]+)$/i.exec(filename);
+    const ext = m ? m[1].toLowerCase() : 'bin';
+    if (ext === 'zip' || ext === 'pdf') {
+      return await api.saveBundleFile(bytes, ext, filename);
+    }
+    return await api.saveImageFile(bytes, ext, filename);
+  }
   saveAs(blob, filename);
+  return null;
 }
 
 export function formatExtension(format: ExportFormat): string {
