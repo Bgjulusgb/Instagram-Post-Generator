@@ -7,6 +7,7 @@ import type {
   BackgroundFill,
   ImageAdjustments,
   ImageElement,
+  ImageFitMode,
   ShapeElement,
   ShapeKind,
   Slide,
@@ -15,6 +16,7 @@ import type {
   ToolMode,
 } from '../types';
 import { DEFAULT_ADJUSTMENTS, SLIDE_FORMATS } from '../types';
+import { computeCoverCrop } from '../utils/image';
 
 const STORAGE_KEY = 'carousel-studio:project';
 const MAX_HISTORY = 200;
@@ -56,6 +58,11 @@ interface EditorActions {
   deleteElements: (ids: string[]) => void;
   duplicateElements: (ids: string[]) => void;
   reorderElement: (id: string, direction: 'up' | 'down' | 'top' | 'bottom') => void;
+  alignElements: (ids: string[], align: 'left' | 'center-h' | 'right' | 'top' | 'middle-v' | 'bottom') => void;
+  distributeElements: (ids: string[], axis: 'horizontal' | 'vertical') => void;
+  alignToSlide: (ids: string[], align: 'left' | 'center-h' | 'right' | 'top' | 'middle-v' | 'bottom') => void;
+  groupSelection: () => void;
+  ungroupSelection: () => void;
   selectElement: (id: string | null, additive?: boolean) => void;
   selectMultipleElements: (ids: string[]) => void;
   deselectAll: () => void;
@@ -69,6 +76,10 @@ interface EditorActions {
     naturalHeight: number,
     targetSlideIds: string[],
   ) => void;
+  /** Re-cover-crop an image element to match its current frame aspect */
+  reCoverImage: (id: string) => void;
+  setImageFitMode: (id: string, mode: ImageFitMode) => void;
+  setImagePan: (id: string, pan: { x: number; y: number }) => void;
 
   // History
   pushHistory: () => void;
@@ -388,6 +399,131 @@ export const useEditor = create<EditorState>()(
       );
     },
 
+    alignElements: (ids, align) => {
+      if (ids.length < 2) return;
+      get().pushHistory();
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          const els = slide.elements.filter((e) => ids.includes(e.id) && !e.locked);
+          if (els.length < 2) return;
+          // Compute the union bounding box of the selection
+          const minX = Math.min(...els.map((e) => e.x));
+          const minY = Math.min(...els.map((e) => e.y));
+          const maxX = Math.max(...els.map((e) => e.x + e.width));
+          const maxY = Math.max(...els.map((e) => e.y + e.height));
+          const centerX = (minX + maxX) / 2;
+          const centerY = (minY + maxY) / 2;
+          els.forEach((el) => {
+            if (align === 'left') el.x = minX;
+            else if (align === 'right') el.x = maxX - el.width;
+            else if (align === 'center-h') el.x = centerX - el.width / 2;
+            else if (align === 'top') el.y = minY;
+            else if (align === 'bottom') el.y = maxY - el.height;
+            else if (align === 'middle-v') el.y = centerY - el.height / 2;
+          });
+          draft.revision++;
+        }),
+      );
+    },
+
+    alignToSlide: (ids, align) => {
+      if (ids.length === 0) return;
+      get().pushHistory();
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          slide.elements
+            .filter((e) => ids.includes(e.id) && !e.locked)
+            .forEach((el) => {
+              if (align === 'left') el.x = 0;
+              else if (align === 'right') el.x = slide.width - el.width;
+              else if (align === 'center-h') el.x = (slide.width - el.width) / 2;
+              else if (align === 'top') el.y = 0;
+              else if (align === 'bottom') el.y = slide.height - el.height;
+              else if (align === 'middle-v') el.y = (slide.height - el.height) / 2;
+            });
+          draft.revision++;
+        }),
+      );
+    },
+
+    distributeElements: (ids, axis) => {
+      if (ids.length < 3) return;
+      get().pushHistory();
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          const els = slide.elements.filter((e) => ids.includes(e.id) && !e.locked);
+          if (els.length < 3) return;
+          if (axis === 'horizontal') {
+            els.sort((a, b) => a.x + a.width / 2 - (b.x + b.width / 2));
+            const first = els[0];
+            const last = els[els.length - 1];
+            const startCenter = first.x + first.width / 2;
+            const endCenter = last.x + last.width / 2;
+            const step = (endCenter - startCenter) / (els.length - 1);
+            els.forEach((el, i) => {
+              const center = startCenter + step * i;
+              el.x = center - el.width / 2;
+            });
+          } else {
+            els.sort((a, b) => a.y + a.height / 2 - (b.y + b.height / 2));
+            const first = els[0];
+            const last = els[els.length - 1];
+            const startCenter = first.y + first.height / 2;
+            const endCenter = last.y + last.height / 2;
+            const step = (endCenter - startCenter) / (els.length - 1);
+            els.forEach((el, i) => {
+              const center = startCenter + step * i;
+              el.y = center - el.height / 2;
+            });
+          }
+          draft.revision++;
+        }),
+      );
+    },
+
+    groupSelection: () => {
+      // For v1 we represent a "group" as a shared name tag — sufficient for
+      // co-selection and bulk operations without an explicit container node.
+      const { selectedElementIds } = get();
+      if (selectedElementIds.length < 2) return;
+      get().pushHistory();
+      const groupName = `Group ${Date.now().toString(36).slice(-4)}`;
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          slide.elements
+            .filter((e) => selectedElementIds.includes(e.id))
+            .forEach((el) => {
+              (el as any).groupId = groupName;
+            });
+          draft.revision++;
+        }),
+      );
+    },
+
+    ungroupSelection: () => {
+      get().pushHistory();
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          slide.elements
+            .filter((e) => draft.selectedElementIds.includes(e.id))
+            .forEach((el) => {
+              delete (el as any).groupId;
+            });
+          draft.revision++;
+        }),
+      );
+    },
+
     reorderElement: (id, direction) => {
       get().pushHistory();
       set((state) =>
@@ -474,20 +610,102 @@ export const useEditor = create<EditorState>()(
       set((state) =>
         produce(state, (draft) => {
           const groupId = nanoid(8);
-          targetSlideIds.forEach((sid, idx) => {
-            const slide = draft.slides.find((s) => s.id === sid);
-            if (!slide || slide.backgroundLocked) return;
+          const targets = targetSlideIds
+            .map((id) => draft.slides.find((s) => s.id === id))
+            .filter((s): s is Slide => !!s && !s.backgroundLocked);
+          if (targets.length === 0) return;
+
+          // Sum each slide's width; height of the panorama strip is the
+          // largest slide height so every slide has something to show.
+          const totalW = targets.reduce((sum, s) => sum + s.width, 0);
+          const stripH = Math.max(...targets.map((s) => s.height));
+
+          // Cover-fit: scale image so it covers the whole strip without
+          // letterboxing, then center any leftover slack.
+          const scale = Math.max(totalW / naturalWidth, stripH / naturalHeight);
+          const dispW = naturalWidth * scale;
+          const dispH = naturalHeight * scale;
+          const offsetX = (totalW - dispW) / 2;
+          const offsetY = (stripH - dispH) / 2;
+
+          let cursorX = 0;
+          targets.forEach((slide, idx) => {
+            const slideStartX = cursorX;
+            cursorX += slide.width;
+
+            // Map slide-space rectangle back into image-source pixel coords.
+            // Clamp to image bounds to keep the crop valid.
+            const cropX = (slideStartX - offsetX) / scale;
+            const cropY = (0 - offsetY) / scale;
+            const cropW = slide.width / scale;
+            const cropH = slide.height / scale;
+
             slide.background = {
               kind: 'image',
               src,
               naturalWidth,
               naturalHeight,
               blur: 0,
+              fitMode: 'cover',
+              crop: {
+                x: clamp(cropX, 0, naturalWidth),
+                y: clamp(cropY, 0, naturalHeight),
+                width: clamp(cropW, 1, naturalWidth),
+                height: clamp(cropH, 1, naturalHeight),
+              },
             };
             slide.panoramaGroupId = groupId;
             slide.panoramaIndex = idx;
-            slide.panoramaTotal = targetSlideIds.length;
+            slide.panoramaTotal = targets.length;
           });
+          draft.revision++;
+        }),
+      );
+    },
+
+    reCoverImage: (id) => {
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          const el = slide.elements.find((e) => e.id === id) as ImageElement | undefined;
+          if (!el || el.type !== 'image') return;
+          el.crop = computeCoverCrop(el.width, el.height, el.naturalWidth, el.naturalHeight, el.pan);
+          draft.revision++;
+        }),
+      );
+    },
+
+    setImageFitMode: (id, mode) => {
+      get().pushHistory();
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          const el = slide.elements.find((e) => e.id === id) as ImageElement | undefined;
+          if (!el || el.type !== 'image') return;
+          el.fitMode = mode;
+          if (mode === 'cover') {
+            el.crop = computeCoverCrop(el.width, el.height, el.naturalWidth, el.naturalHeight, el.pan);
+          } else if (mode === 'fill') {
+            el.crop = { x: 0, y: 0, width: el.naturalWidth, height: el.naturalHeight };
+          }
+          draft.revision++;
+        }),
+      );
+    },
+
+    setImagePan: (id, pan) => {
+      set((state) =>
+        produce(state, (draft) => {
+          const slide = draft.slides.find((s) => s.id === draft.currentSlideId);
+          if (!slide) return;
+          const el = slide.elements.find((e) => e.id === id) as ImageElement | undefined;
+          if (!el || el.type !== 'image') return;
+          el.pan = { x: clamp(pan.x, 0, 1), y: clamp(pan.y, 0, 1) };
+          if (el.fitMode === 'cover') {
+            el.crop = computeCoverCrop(el.width, el.height, el.naturalWidth, el.naturalHeight, el.pan);
+          }
           draft.revision++;
         }),
       );
@@ -526,9 +744,10 @@ export const useEditor = create<EditorState>()(
         if (!raw) return;
         const data = JSON.parse(raw);
         if (Array.isArray(data.slides) && data.slides.length > 0) {
+          const migrated = data.slides.map(migrateSlide);
           set({
-            slides: data.slides,
-            currentSlideId: data.slides[0].id,
+            slides: migrated,
+            currentSlideId: migrated[0].id,
             selectedElementIds: [],
             history: [],
             future: [],
@@ -541,9 +760,10 @@ export const useEditor = create<EditorState>()(
 
     loadProject: (slides) => {
       if (!Array.isArray(slides) || slides.length === 0) return;
+      const migrated = slides.map(migrateSlide);
       set({
-        slides,
-        currentSlideId: slides[0].id,
+        slides: migrated,
+        currentSlideId: migrated[0].id,
         selectedElementIds: [],
         history: [],
         future: [],
@@ -597,6 +817,46 @@ export const useEditor = create<EditorState>()(
 
 // Helpers ----------------------------------------------------
 
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+/** Migrate a slide loaded from storage to the current schema. */
+function migrateSlide(raw: any): Slide {
+  const slide = { ...raw } as Slide;
+  // Background image now requires fitMode + crop
+  if (slide.background?.kind === 'image') {
+    const bg = slide.background as any;
+    if (!bg.fitMode) bg.fitMode = 'cover';
+    if (!bg.crop) {
+      bg.crop = computeCoverCrop(
+        slide.width,
+        slide.height,
+        bg.naturalWidth,
+        bg.naturalHeight,
+      );
+    }
+  }
+  slide.elements = (slide.elements ?? []).map((el: any) => {
+    if (el.type === 'image') {
+      if (!el.fitMode) el.fitMode = 'cover';
+      if (!el.pan) el.pan = { x: 0.5, y: 0.5 };
+      if (!el.crop) {
+        el.crop = computeCoverCrop(
+          el.width,
+          el.height,
+          el.naturalWidth,
+          el.naturalHeight,
+          el.pan,
+        );
+      }
+      if (!el.adjustments) el.adjustments = { ...DEFAULT_ADJUSTMENTS };
+    }
+    return el;
+  });
+  return slide;
+}
+
 export function createImageElement(
   src: string,
   naturalWidth: number,
@@ -604,6 +864,9 @@ export function createImageElement(
   fitWidth: number,
   fitHeight: number,
 ): ImageElement {
+  // Default: fit the image inside ~80% of the slide *without* distortion.
+  // The frame keeps the image's native aspect ratio so the photo is always
+  // shown undistorted before the user resizes it.
   const ratio = naturalWidth / naturalHeight;
   let w = fitWidth * 0.8;
   let h = w / ratio;
@@ -611,6 +874,7 @@ export function createImageElement(
     h = fitHeight * 0.8;
     w = h * ratio;
   }
+  const pan = { x: 0.5, y: 0.5 };
   return {
     id: nanoid(8),
     type: 'image',
@@ -627,6 +891,9 @@ export function createImageElement(
     src,
     naturalWidth,
     naturalHeight,
+    fitMode: 'cover',
+    pan,
+    crop: computeCoverCrop(w, h, naturalWidth, naturalHeight, pan),
     cornerRadius: 0,
     adjustments: { ...DEFAULT_ADJUSTMENTS },
   };

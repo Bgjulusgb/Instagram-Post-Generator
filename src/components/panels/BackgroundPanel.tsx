@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { Lock, Unlock, Layers as LayersIcon } from 'lucide-react';
 import { useEditor } from '../../store/editorStore';
-import { loadImageFile } from '../../utils/image';
+import { computeCoverCrop, loadImageFile } from '../../utils/image';
 import { ColorInput } from '../ui/ColorInput';
 import { Slider } from '../ui/Slider';
 import { cn } from '../../utils/cn';
@@ -31,7 +31,16 @@ export function BackgroundPanel() {
 
   const onUpload = async (file: File) => {
     const { src, naturalWidth, naturalHeight } = await loadImageFile(file);
-    setBackground(slide.id, { kind: 'image', src, naturalWidth, naturalHeight, blur: 0 });
+    const crop = computeCoverCrop(slide.width, slide.height, naturalWidth, naturalHeight);
+    setBackground(slide.id, {
+      kind: 'image',
+      src,
+      naturalWidth,
+      naturalHeight,
+      blur: 0,
+      fitMode: 'cover',
+      crop,
+    });
   };
 
   const onPanorama = async (file: File) => {

@@ -3,6 +3,7 @@ import { ImagePropertiesPanel } from './panels/ImagePropertiesPanel';
 import { TextPropertiesPanel } from './panels/TextPropertiesPanel';
 import { ShapePropertiesPanel } from './panels/ShapePropertiesPanel';
 import { CommonPropertiesPanel } from './panels/CommonPropertiesPanel';
+import { AlignToolbar } from './panels/AlignToolbar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUpDown, ArrowUpToLine, ArrowDownToLine, Copy, Trash2 } from 'lucide-react';
 
@@ -80,6 +81,7 @@ export function RightSidebar() {
             {single?.type === 'image' && <ImagePropertiesPanel element={single} />}
             {single?.type === 'text' && <TextPropertiesPanel element={single} />}
             {single?.type === 'shape' && <ShapePropertiesPanel element={single} />}
+            {selectedElements.length > 0 && <AlignToolbar />}
             {selectedElements.length === 0 && <EmptyStatePanel />}
           </motion.div>
         </AnimatePresence>

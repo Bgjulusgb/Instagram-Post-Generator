@@ -2,8 +2,10 @@ import { useRef, useState } from 'react';
 import { Plus, Copy, Trash2, GripVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEditor } from '../store/editorStore';
-import type { Slide } from '../types';
+import type { ImageElement, Slide } from '../types';
 import { cn } from '../utils/cn';
+import { cssCropStyle } from '../utils/cssCrop';
+import { computeContainRect } from '../utils/image';
 import { Tooltip } from './ui/Tooltip';
 
 /**
@@ -18,12 +20,13 @@ export function SlidesPanel() {
   const addSlide = useEditor((s) => s.addSlide);
   const duplicateSlide = useEditor((s) => s.duplicateSlide);
   const deleteSlide = useEditor((s) => s.deleteSlide);
+  const renameSlide = useEditor((s) => s.renameSlide);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   return (
-    <div className="z-30 flex h-32 flex-shrink-0 items-stretch gap-2 border-t hairline glass px-3 py-3">
+    <div className="z-30 flex h-36 flex-shrink-0 items-stretch gap-2 border-t hairline glass px-3 py-3">
       <div className="flex flex-1 items-center gap-2 overflow-x-auto pr-1">
         {slides.map((slide, i) => (
           <SlideThumb
@@ -35,6 +38,7 @@ export function SlidesPanel() {
             onClick={() => selectSlide(slide.id)}
             onDuplicate={() => duplicateSlide(slide.id)}
             onDelete={() => deleteSlide(slide.id)}
+            onRename={(name) => renameSlide(slide.id, name)}
             onDragStart={() => setDragIndex(i)}
             onDragEnter={() => setHoverIndex(i)}
             onDragEnd={() => {
@@ -73,6 +77,7 @@ interface SlideThumbProps {
   onClick: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onRename: (name: string) => void;
   onDragStart: () => void;
   onDragEnter: () => void;
   onDragEnd: () => void;
@@ -87,11 +92,13 @@ function SlideThumb({
   onClick,
   onDuplicate,
   onDelete,
+  onRename,
   onDragStart,
   onDragEnter,
   onDragEnd,
 }: SlideThumbProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState(false);
   // Compute a tiny preview height that fits in 80px tall
   const aspect = slide.height / slide.width;
   const thumbHeight = 80;
@@ -134,6 +141,32 @@ function SlideThumb({
           <div className="pointer-events-none absolute top-0.5 right-0.5 rounded bg-black/60 px-1 py-px text-[8px] uppercase tracking-wider text-white/80">
             P{(slide.panoramaIndex ?? 0) + 1}
           </div>
+        )}
+      </div>
+      <div
+        className="mt-1 text-center"
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          setEditing(true);
+        }}
+      >
+        {editing ? (
+          <input
+            autoFocus
+            defaultValue={slide.name}
+            onBlur={(e) => {
+              onRename(e.target.value.trim() || slide.name);
+              setEditing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full rounded bg-white/10 px-1 text-center text-[9px] text-white outline-none ring-1 ring-white/30"
+          />
+        ) : (
+          <div className="truncate px-1 text-[9px] text-ink-400">{slide.name}</div>
         )}
       </div>
 
@@ -185,40 +218,107 @@ function SlideThumbPreview({ slide }: { slide: Slide }) {
     style.background = `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`;
   if (bg.kind === 'image') {
     style.backgroundImage = `url(${bg.src})`;
-    style.backgroundSize = 'cover';
-    style.backgroundPosition = slide.panoramaGroupId
-      ? `${((slide.panoramaIndex ?? 0) / Math.max(1, (slide.panoramaTotal ?? 1) - 1)) * 100}% center`
-      : 'center';
-    style.backgroundSize = slide.panoramaGroupId
-      ? `${100 * (slide.panoramaTotal ?? 1)}% 100%`
-      : 'cover';
+    style.backgroundRepeat = 'no-repeat';
+    const css = cssCropStyle(bg.crop, {
+      width: bg.naturalWidth,
+      height: bg.naturalHeight,
+    });
+    style.backgroundSize = css.backgroundSize;
+    style.backgroundPosition = css.backgroundPosition;
   }
 
   return (
-    <div className="relative h-full w-full" style={style}>
-      {/* Lightweight visual indicators of elements */}
-      {slide.elements.slice(0, 12).map((el) => {
-        const left = (el.x / slide.width) * 100;
-        const top = (el.y / slide.height) * 100;
-        const width = (el.width / slide.width) * 100;
-        const height = (el.height / slide.height) * 100;
+    <div className="relative h-full w-full overflow-hidden" style={style}>
+      {slide.elements.slice(0, 16).map((el) => {
+        if (!el.visible) return null;
+        const common: React.CSSProperties = {
+          position: 'absolute',
+          left: `${(el.x / slide.width) * 100}%`,
+          top: `${(el.y / slide.height) * 100}%`,
+          width: `${(el.width / slide.width) * 100}%`,
+          height: `${(el.height / slide.height) * 100}%`,
+          opacity: el.opacity,
+          transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+        };
+        if (el.type === 'image') {
+          const img = el as ImageElement;
+          if (img.fitMode === 'contain') {
+            const fit = computeContainRect(img.width, img.height, img.naturalWidth, img.naturalHeight);
+            return (
+              <div
+                key={el.id}
+                style={{
+                  ...common,
+                  overflow: 'hidden',
+                  borderRadius: `${(img.cornerRadius / Math.min(img.width, img.height)) * 50}%`,
+                }}
+              >
+                <img
+                  src={img.src}
+                  alt=""
+                  style={{
+                    position: 'absolute',
+                    left: `${(fit.x / img.width) * 100}%`,
+                    top: `${(fit.y / img.height) * 100}%`,
+                    width: `${(fit.width / img.width) * 100}%`,
+                    height: `${(fit.height / img.height) * 100}%`,
+                  }}
+                />
+              </div>
+            );
+          }
+          return (
+            <img
+              key={el.id}
+              src={img.src}
+              alt=""
+              style={{
+                ...common,
+                objectFit: img.fitMode === 'fill' ? 'fill' : 'cover',
+                objectPosition: `${img.pan.x * 100}% ${img.pan.y * 100}%`,
+                borderRadius: `${(img.cornerRadius / Math.min(img.width, img.height)) * 50}%`,
+              }}
+            />
+          );
+        }
+        if (el.type === 'text') {
+          const t = el as any;
+          // Approximate text by rendering thin lines based on word count to
+          // keep the thumbnail readable at very small sizes.
+          return (
+            <div
+              key={el.id}
+              style={{
+                ...common,
+                color: t.fill,
+                background: 'transparent',
+                fontSize: `${Math.max(2, (t.fontSize / slide.width) * 100)}cqw`,
+                fontFamily: t.fontFamily,
+                fontWeight: t.fontWeight,
+                fontStyle: t.italic ? 'italic' : 'normal',
+                textDecoration: t.underline ? 'underline' : 'none',
+                textAlign: t.align,
+                lineHeight: t.lineHeight,
+                whiteSpace: 'pre-wrap',
+                overflow: 'hidden',
+                containerType: 'inline-size',
+              }}
+            >
+              {t.text}
+            </div>
+          );
+        }
+        const s = el as any;
         return (
           <div
             key={el.id}
-            className="absolute"
             style={{
-              left: `${left}%`,
-              top: `${top}%`,
-              width: `${width}%`,
-              height: `${height}%`,
-              background:
-                el.type === 'text'
-                  ? 'rgba(255,255,255,0.35)'
-                  : el.type === 'image'
-                    ? 'rgba(255,255,255,0.2)'
-                    : (el as any).fill ?? 'rgba(255,255,255,0.4)',
-              opacity: el.visible ? el.opacity * 0.9 : 0,
-              transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+              ...common,
+              background: s.fill,
+              borderRadius:
+                s.shape === 'ellipse'
+                  ? '50%'
+                  : `${(s.cornerRadius / Math.min(s.width, s.height)) * 50}%`,
             }}
           />
         );

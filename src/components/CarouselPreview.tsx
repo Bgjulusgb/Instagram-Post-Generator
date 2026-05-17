@@ -3,7 +3,9 @@ import { Modal } from './ui/Modal';
 import { useEditor } from '../store/editorStore';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Slide } from '../types';
+import type { ImageElement, Slide } from '../types';
+import { cssCropStyle } from '../utils/cssCrop';
+import { computeContainRect } from '../utils/image';
 
 interface Props {
   open: boolean;
@@ -113,14 +115,16 @@ function SlideDomRender({ slide }: { slide: Slide }) {
   if (slide.background.kind === 'gradient')
     bgStyle.background = `linear-gradient(${slide.background.angle}deg, ${slide.background.from}, ${slide.background.to})`;
   if (slide.background.kind === 'image') {
-    bgStyle.backgroundImage = `url(${slide.background.src})`;
-    bgStyle.backgroundSize = slide.panoramaGroupId
-      ? `${100 * (slide.panoramaTotal ?? 1)}% 100%`
-      : 'cover';
-    bgStyle.backgroundPosition = slide.panoramaGroupId
-      ? `${((slide.panoramaIndex ?? 0) / Math.max(1, (slide.panoramaTotal ?? 1) - 1)) * 100}% center`
-      : 'center';
-    if (slide.background.blur > 0) bgStyle.filter = `blur(${slide.background.blur * scale}px)`;
+    const bg = slide.background;
+    bgStyle.backgroundImage = `url(${bg.src})`;
+    bgStyle.backgroundRepeat = 'no-repeat';
+    const css = cssCropStyle(bg.crop, {
+      width: bg.naturalWidth,
+      height: bg.naturalHeight,
+    });
+    bgStyle.backgroundSize = css.backgroundSize;
+    bgStyle.backgroundPosition = css.backgroundPosition;
+    if (bg.blur > 0) bgStyle.filter = `blur(${bg.blur * scale}px)`;
   }
 
   return (
@@ -168,14 +172,56 @@ function SlideDomRender({ slide }: { slide: Slide }) {
             );
           }
           if (el.type === 'image') {
+            const img = el as ImageElement;
+            // Map our crop+frame system to CSS object-fit. The on-canvas
+            // Konva renderer uses the same crop math, so previews match.
+            if (img.fitMode === 'contain') {
+              const fit = computeContainRect(img.width, img.height, img.naturalWidth, img.naturalHeight);
+              return (
+                <div
+                  key={el.id}
+                  style={{
+                    ...common,
+                    overflow: 'hidden',
+                    borderRadius: img.cornerRadius,
+                  }}
+                >
+                  <img
+                    src={img.src}
+                    style={{
+                      position: 'absolute',
+                      left: fit.x,
+                      top: fit.y,
+                      width: fit.width,
+                      height: fit.height,
+                    }}
+                  />
+                </div>
+              );
+            }
+            if (img.fitMode === 'fill') {
+              return (
+                <img
+                  key={el.id}
+                  src={img.src}
+                  style={{
+                    ...common,
+                    objectFit: 'fill',
+                    borderRadius: img.cornerRadius,
+                  }}
+                />
+              );
+            }
+            // cover with explicit pan
             return (
               <img
                 key={el.id}
-                src={(el as any).src}
+                src={img.src}
                 style={{
                   ...common,
                   objectFit: 'cover',
-                  borderRadius: (el as any).cornerRadius,
+                  objectPosition: `${img.pan.x * 100}% ${img.pan.y * 100}%`,
+                  borderRadius: img.cornerRadius,
                 }}
               />
             );

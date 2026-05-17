@@ -75,13 +75,23 @@ export interface ImageElement extends BaseElement {
   src: string;
   naturalWidth: number;
   naturalHeight: number;
-  /** Crop in image-source pixel space */
-  crop?: { x: number; y: number; width: number; height: number };
+  /** How the image is fitted inside the element frame */
+  fitMode: ImageFitMode;
+  /**
+   * Crop in image-source pixel space. Always defined — its width/height ratio
+   * matches the element frame's aspect ratio when fitMode is 'cover'/'contain'
+   * so the image never stretches.
+   */
+  crop: { x: number; y: number; width: number; height: number };
+  /** Pan position 0..1 used to recompute the crop on resize while keeping focus */
+  pan: { x: number; y: number };
   cornerRadius: number;
   adjustments: ImageAdjustments;
   /** Optional filter preset name */
   preset?: string;
 }
+
+export type ImageFitMode = 'cover' | 'contain' | 'fill';
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 export type FontWeight = 300 | 400 | 500 | 600 | 700 | 800;
@@ -120,7 +130,20 @@ export type AnyElement = ImageElement | TextElement | ShapeElement;
 export type BackgroundFill =
   | { kind: 'color'; color: string }
   | { kind: 'gradient'; from: string; to: string; angle: number }
-  | { kind: 'image'; src: string; naturalWidth: number; naturalHeight: number; blur: number };
+  | {
+      kind: 'image';
+      src: string;
+      naturalWidth: number;
+      naturalHeight: number;
+      blur: number;
+      /**
+       * Crop in image-source pixel space. Pre-computed for cover fit so the
+       * background never stretches. Required for both single-image and
+       * panorama-split backgrounds.
+       */
+      crop: { x: number; y: number; width: number; height: number };
+      fitMode: ImageFitMode;
+    };
 
 export interface Slide {
   id: string;

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Undo2,
   Redo2,
@@ -9,6 +9,7 @@ import {
   Save,
   FolderOpen,
   Sparkles,
+  HelpCircle,
   ChevronDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -152,9 +153,7 @@ export function Topbar({ saveStatus, onOpenExport }: Props) {
               <ZoomOut size={12} strokeWidth={1.5} />
             </button>
           </Tooltip>
-          <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-ink-200">
-            {Math.round(zoom * 100)}%
-          </span>
+          <ZoomPicker zoom={zoom} setZoom={setZoom} resetOffset={() => setStageOffset(0, 0)} />
           <Tooltip label="Zoom in" shortcut="⌘+">
             <button className="icon-btn h-6 w-6" onClick={() => setZoom(zoom * 1.2)}>
               <ZoomIn size={12} strokeWidth={1.5} />
@@ -177,10 +176,15 @@ export function Topbar({ saveStatus, onOpenExport }: Props) {
       {/* Right */}
       <div className="flex items-center gap-3">
         <SaveStatus status={saveStatus} />
-        <button
-          className="btn-solid"
-          onClick={onOpenExport}
-        >
+        <Tooltip label="Keyboard shortcuts" shortcut="?">
+          <button
+            className="icon-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent('carousel-studio:open-help'))}
+          >
+            <HelpCircle size={14} strokeWidth={1.5} />
+          </button>
+        </Tooltip>
+        <button className="btn-solid" onClick={onOpenExport}>
           <Download size={13} strokeWidth={2} />
           Export
         </button>
@@ -213,6 +217,93 @@ function FileMenuItem({
         </span>
       )}
     </button>
+  );
+}
+
+function ZoomPicker({
+  zoom,
+  setZoom,
+  resetOffset,
+}: {
+  zoom: number;
+  setZoom: (z: number) => void;
+  resetOffset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popRef.current && !popRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const presets = [
+    { label: '25%', v: 0.25 },
+    { label: '50%', v: 0.5 },
+    { label: '75%', v: 0.75 },
+    { label: '100%', v: 1 },
+    { label: '150%', v: 1.5 },
+    { label: '200%', v: 2 },
+    { label: '400%', v: 4 },
+  ];
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex min-w-[4rem] items-center justify-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] text-ink-200 hover:bg-white/[0.06]"
+      >
+        {Math.round(zoom * 100)}%
+        <ChevronDown size={10} strokeWidth={1.5} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            ref={popRef}
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.12 }}
+            className="absolute left-1/2 top-full z-50 mt-1.5 w-40 -translate-x-1/2 overflow-hidden rounded-xl glass-strong shadow-2xl"
+          >
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => {
+                  setZoom(p.v);
+                  setOpen(false);
+                }}
+                className={cn(
+                  'flex w-full items-center justify-between px-3 py-1.5 text-left text-[11px] transition-colors hover:bg-white/[0.06]',
+                  Math.abs(zoom - p.v) < 0.01 ? 'text-white' : 'text-ink-300',
+                )}
+              >
+                <span>{p.label}</span>
+                {Math.abs(zoom - p.v) < 0.01 && <span className="text-[9px] text-ink-500">·</span>}
+              </button>
+            ))}
+            <div className="border-t hairline">
+              <button
+                onClick={() => {
+                  resetOffset();
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-[11px] text-ink-300 transition-colors hover:bg-white/[0.06]"
+              >
+                Reset view
+                <span className="ml-auto rounded bg-white/[0.06] px-1 py-px font-mono text-[9px]">
+                  ⌘0
+                </span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
