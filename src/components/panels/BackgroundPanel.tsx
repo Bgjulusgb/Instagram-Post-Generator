@@ -1,7 +1,9 @@
 import { useRef } from 'react';
 import { Lock, Unlock, Layers as LayersIcon } from 'lucide-react';
 import { useEditor } from '../../store/editorStore';
-import { computeCoverCrop, loadImageFile } from '../../utils/image';
+import { computeCoverCrop } from '../../utils/image';
+import { processImageFile } from '../../utils/imagePreview';
+import { toast } from '../../hooks/useToast';
 import { ColorInput } from '../ui/ColorInput';
 import { Slider } from '../ui/Slider';
 import { cn } from '../../utils/cn';
@@ -30,23 +32,46 @@ export function BackgroundPanel() {
   const panoramaInputRef = useRef<HTMLInputElement>(null);
 
   const onUpload = async (file: File) => {
-    const { src, naturalWidth, naturalHeight } = await loadImageFile(file);
-    const crop = computeCoverCrop(slide.width, slide.height, naturalWidth, naturalHeight);
-    setBackground(slide.id, {
-      kind: 'image',
-      src,
-      naturalWidth,
-      naturalHeight,
-      blur: 0,
-      fitMode: 'cover',
-      crop,
-    });
+    const toastId = file.size > 2_500_000 ? toast.loading('Processing image…') : null;
+    try {
+      const { src, previewSrc, naturalWidth, naturalHeight } = await processImageFile(file);
+      const crop = computeCoverCrop(slide.width, slide.height, naturalWidth, naturalHeight);
+      setBackground(slide.id, {
+        kind: 'image',
+        src,
+        previewSrc,
+        naturalWidth,
+        naturalHeight,
+        blur: 0,
+        fitMode: 'cover',
+        crop,
+      });
+      if (toastId !== null)
+        toast.update(toastId, { tone: 'success', title: 'Background set', duration: 1800 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (toastId !== null)
+        toast.update(toastId, { tone: 'error', title: 'Background failed', message: msg });
+      else toast.error('Background failed', msg);
+    }
   };
 
   const onPanorama = async (file: File) => {
-    const { src, naturalWidth, naturalHeight } = await loadImageFile(file);
-    const targetIds = slides.map((s) => s.id);
-    applyPanorama(src, naturalWidth, naturalHeight, targetIds);
+    const toastId = toast.loading('Processing panorama…');
+    try {
+      const { src, previewSrc, naturalWidth, naturalHeight } = await processImageFile(file);
+      const targetIds = slides.map((s) => s.id);
+      applyPanorama({ src, previewSrc, naturalWidth, naturalHeight }, targetIds);
+      toast.update(toastId, {
+        tone: 'success',
+        title: 'Panorama applied',
+        message: `Split across ${targetIds.length} slide${targetIds.length === 1 ? '' : 's'}`,
+        duration: 2400,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.update(toastId, { tone: 'error', title: 'Panorama failed', message: msg });
+    }
   };
 
   const bg = slide.background;

@@ -21,8 +21,7 @@
       { "target": "nsis", "arch": ["x64"] },
       { "target": "portable", "arch": ["x64"] }
     ],
-    "artifactName": "Carousel-Studio-Setup-${version}.${ext}",
-    "publisherName": "Carousel Studio"
+    "artifactName": "Carousel-Studio-Setup-${version}.${ext}"
   },
   "nsis": {
     "oneClick": false,

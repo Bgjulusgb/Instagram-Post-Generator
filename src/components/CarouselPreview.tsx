@@ -116,7 +116,7 @@ function SlideDomRender({ slide }: { slide: Slide }) {
     bgStyle.background = `linear-gradient(${slide.background.angle}deg, ${slide.background.from}, ${slide.background.to})`;
   if (slide.background.kind === 'image') {
     const bg = slide.background;
-    bgStyle.backgroundImage = `url(${bg.src})`;
+    bgStyle.backgroundImage = `url(${bg.previewSrc || bg.src})`;
     bgStyle.backgroundRepeat = 'no-repeat';
     const css = cssCropStyle(bg.crop, {
       width: bg.naturalWidth,
@@ -187,7 +187,7 @@ function SlideDomRender({ slide }: { slide: Slide }) {
                   }}
                 >
                   <img
-                    src={img.src}
+                    src={img.previewSrc || img.src}
                     style={{
                       position: 'absolute',
                       left: fit.x,
@@ -203,7 +203,7 @@ function SlideDomRender({ slide }: { slide: Slide }) {
               return (
                 <img
                   key={el.id}
-                  src={img.src}
+                  src={img.previewSrc || img.src}
                   style={{
                     ...common,
                     objectFit: 'fill',
@@ -216,7 +216,7 @@ function SlideDomRender({ slide }: { slide: Slide }) {
             return (
               <img
                 key={el.id}
-                src={img.src}
+                src={img.previewSrc || img.src}
                 style={{
                   ...common,
                   objectFit: 'cover',

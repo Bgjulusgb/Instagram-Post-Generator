@@ -9,6 +9,7 @@ import { CarouselPreview } from './CarouselPreview';
 import { SlidesGridModal } from './SlidesGridModal';
 import { HelpModal } from './HelpModal';
 import { SplashScreen } from './SplashScreen';
+import { ToastViewport } from './ui/ToastViewport';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useClipboardPaste } from '../hooks/useClipboardPaste';
 import { useAutosave } from '../hooks/useAutosave';
@@ -136,6 +137,7 @@ export function Editor() {
       <CarouselPreview open={previewOpen} onClose={() => setPreviewOpen(false)} />
       <SlidesGridModal open={gridOpen} onClose={() => setGridOpen(false)} />
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ToastViewport />
     </div>
   );
 }

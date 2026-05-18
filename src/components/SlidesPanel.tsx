@@ -217,7 +217,7 @@ function SlideThumbPreview({ slide }: { slide: Slide }) {
   if (bg.kind === 'gradient')
     style.background = `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`;
   if (bg.kind === 'image') {
-    style.backgroundImage = `url(${bg.src})`;
+    style.backgroundImage = `url(${bg.previewSrc || bg.src})`;
     style.backgroundRepeat = 'no-repeat';
     const css = cssCropStyle(bg.crop, {
       width: bg.naturalWidth,
@@ -254,7 +254,7 @@ function SlideThumbPreview({ slide }: { slide: Slide }) {
                 }}
               >
                 <img
-                  src={img.src}
+                  src={img.previewSrc || img.src}
                   alt=""
                   style={{
                     position: 'absolute',
@@ -270,7 +270,7 @@ function SlideThumbPreview({ slide }: { slide: Slide }) {
           return (
             <img
               key={el.id}
-              src={img.src}
+              src={img.previewSrc || img.src}
               alt=""
               style={{
                 ...common,

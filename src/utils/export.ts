@@ -19,10 +19,16 @@ export interface ExportOptions {
 }
 
 export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
+  // PNG by default — lossless, max quality, Instagram accepts it for posts.
   format: 'png',
+  // 2× pixel density covers Retina phones; Instagram itself caps inbound at
+  // 1080 px wide and re-encodes, so 2× is the sweet spot vs file size.
   scale: 2,
-  quality: 0.96,
+  // Near-max JPEG/WEBP quality. We avoid 1.0 only to keep file size sane
+  // for ZIP/PDF bundles; Instagram further re-encodes anything we upload.
+  quality: 0.98,
   transparent: false,
+  // Light unsharp mask compensates for Instagram's aggressive re-encode.
   sharpen: false,
 };
 

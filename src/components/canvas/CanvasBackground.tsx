@@ -15,7 +15,9 @@ interface Props {
  */
 export function CanvasBackground({ slide }: Props) {
   const bg = slide.background;
-  const imgSrc = bg.kind === 'image' ? bg.src : undefined;
+  // Background also uses the preview when available so panning across slides
+  // doesn't blow the filter cache. Export still pulls from `src`.
+  const imgSrc = bg.kind === 'image' ? bg.previewSrc || bg.src : undefined;
   const image = useHtmlImage(imgSrc);
   const imgNode = useRef<Konva.Image>(null);
 
@@ -72,6 +74,8 @@ export function CanvasBackground({ slide }: Props) {
   }
 
   if (bg.kind === 'image' && image) {
+    // Scale crop into the rendered bitmap's coordinate space, see CanvasImage.
+    const imgScale = image.naturalWidth / bg.naturalWidth;
     return (
       <Group listening={false}>
         <KonvaImage
@@ -81,7 +85,12 @@ export function CanvasBackground({ slide }: Props) {
           y={0}
           width={slide.width}
           height={slide.height}
-          crop={bg.crop}
+          crop={{
+            x: bg.crop.x * imgScale,
+            y: bg.crop.y * imgScale,
+            width: bg.crop.width * imgScale,
+            height: bg.crop.height * imgScale,
+          }}
           listening={false}
         />
       </Group>

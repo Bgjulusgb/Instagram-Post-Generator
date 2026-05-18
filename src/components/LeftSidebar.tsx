@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEditor, createImageElement } from '../store/editorStore';
-import { loadImageFile } from '../utils/image';
+import { processImageFile } from '../utils/imagePreview';
 import { Tooltip } from './ui/Tooltip';
 import type { ToolMode } from '../types';
 import { cn } from '../utils/cn';
@@ -332,22 +332,39 @@ function MediaPanel() {
   const currentSlideId = useEditor((s) => s.currentSlideId);
   const slide = slides.find((s) => s.id === currentSlideId)!;
   const addElement = useEditor((s) => s.addElement);
-  const [recents, setRecents] = useState<{ src: string; w: number; h: number }[]>([]);
+  // Recents preview thumbnails live in component state — full source URLs
+  // stay attached to the corresponding slide elements so they're persisted.
+  const [recents, setRecents] = useState<
+    { previewSrc: string; src: string; naturalWidth: number; naturalHeight: number }[]
+  >([]);
 
   const onFiles = async (files: FileList | null) => {
     if (!files) return;
     for (const file of Array.from(files)) {
       try {
-        const data = await loadImageFile(file);
+        const processed = await processImageFile(file);
         const el = createImageElement(
-          data.src,
-          data.naturalWidth,
-          data.naturalHeight,
+          {
+            src: processed.src,
+            previewSrc: processed.previewSrc,
+            naturalWidth: processed.naturalWidth,
+            naturalHeight: processed.naturalHeight,
+          },
           slide.width,
           slide.height,
         );
         addElement(el);
-        setRecents((r) => [{ src: data.src, w: data.naturalWidth, h: data.naturalHeight }, ...r].slice(0, 24));
+        setRecents((r) =>
+          [
+            {
+              previewSrc: processed.previewSrc,
+              src: processed.src,
+              naturalWidth: processed.naturalWidth,
+              naturalHeight: processed.naturalHeight,
+            },
+            ...r,
+          ].slice(0, 24),
+        );
       } catch (err) {
         console.warn('Failed to load image', err);
       }
@@ -396,13 +413,22 @@ function MediaPanel() {
               <button
                 key={i}
                 onClick={() => {
-                  const el = createImageElement(r.src, r.w, r.h, slide.width, slide.height);
+                  const el = createImageElement(
+                    {
+                      src: r.src,
+                      previewSrc: r.previewSrc,
+                      naturalWidth: r.naturalWidth,
+                      naturalHeight: r.naturalHeight,
+                    },
+                    slide.width,
+                    slide.height,
+                  );
                   addElement(el);
                 }}
                 className="group relative aspect-square overflow-hidden rounded-lg border hairline bg-ink-900"
               >
                 <img
-                  src={r.src}
+                  src={r.previewSrc}
                   className="absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                   draggable={false}
                 />

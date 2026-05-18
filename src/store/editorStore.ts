@@ -71,9 +71,12 @@ interface EditorActions {
   setBackground: (slideId: string, bg: BackgroundFill) => void;
   toggleBackgroundLock: (slideId: string) => void;
   applyPanoramaImage: (
-    src: string,
-    naturalWidth: number,
-    naturalHeight: number,
+    image: {
+      src: string;
+      previewSrc?: string;
+      naturalWidth: number;
+      naturalHeight: number;
+    },
     targetSlideIds: string[],
   ) => void;
   /** Re-cover-crop an image element to match its current frame aspect */
@@ -613,7 +616,8 @@ export const useEditor = create<EditorState>()(
       );
     },
 
-    applyPanoramaImage: (src, naturalWidth, naturalHeight, targetSlideIds) => {
+    applyPanoramaImage: (image, targetSlideIds) => {
+      const { src, previewSrc, naturalWidth, naturalHeight } = image;
       get().pushHistory();
       set((state) =>
         produce(state, (draft) => {
@@ -623,13 +627,9 @@ export const useEditor = create<EditorState>()(
             .filter((s): s is Slide => !!s && !s.backgroundLocked);
           if (targets.length === 0) return;
 
-          // Sum each slide's width; height of the panorama strip is the
-          // largest slide height so every slide has something to show.
           const totalW = targets.reduce((sum, s) => sum + s.width, 0);
           const stripH = Math.max(...targets.map((s) => s.height));
 
-          // Cover-fit: scale image so it covers the whole strip without
-          // letterboxing, then center any leftover slack.
           const scale = Math.max(totalW / naturalWidth, stripH / naturalHeight);
           const dispW = naturalWidth * scale;
           const dispH = naturalHeight * scale;
@@ -641,8 +641,6 @@ export const useEditor = create<EditorState>()(
             const slideStartX = cursorX;
             cursorX += slide.width;
 
-            // Map slide-space rectangle back into image-source pixel coords.
-            // Clamp to image bounds to keep the crop valid.
             const cropX = (slideStartX - offsetX) / scale;
             const cropY = (0 - offsetY) / scale;
             const cropW = slide.width / scale;
@@ -651,6 +649,7 @@ export const useEditor = create<EditorState>()(
             slide.background = {
               kind: 'image',
               src,
+              previewSrc,
               naturalWidth,
               naturalHeight,
               blur: 0,
@@ -895,15 +894,19 @@ function migrateSlide(raw: any): Slide {
 }
 
 export function createImageElement(
-  src: string,
-  naturalWidth: number,
-  naturalHeight: number,
+  args: {
+    src: string;
+    previewSrc?: string;
+    naturalWidth: number;
+    naturalHeight: number;
+  },
   fitWidth: number,
   fitHeight: number,
 ): ImageElement {
   // Default: fit the image inside ~80% of the slide *without* distortion.
   // The frame keeps the image's native aspect ratio so the photo is always
   // shown undistorted before the user resizes it.
+  const { src, previewSrc, naturalWidth, naturalHeight } = args;
   const ratio = naturalWidth / naturalHeight;
   let w = fitWidth * 0.8;
   let h = w / ratio;
@@ -926,6 +929,7 @@ export function createImageElement(
     visible: true,
     blendMode: 'normal',
     src,
+    previewSrc,
     naturalWidth,
     naturalHeight,
     fitMode: 'cover',

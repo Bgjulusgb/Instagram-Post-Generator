@@ -3,7 +3,6 @@ import { Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { motion } from 'framer-motion';
 import {
-  createImageElement,
   createShapeElement,
   createTextElement,
   useEditor,
@@ -15,7 +14,7 @@ import { CanvasText } from './CanvasText';
 import { MiniMap } from './MiniMap';
 import { SelectionToolbar } from './SelectionToolbar';
 import { snapPosition } from '../../utils/snap';
-import { loadImageFile } from '../../utils/image';
+import { importImageFiles } from '../../utils/importImage';
 import type { AnyElement, GuideLine } from '../../types';
 
 export function Canvas() {
@@ -384,21 +383,7 @@ export function Canvas() {
     setDropActive(false);
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
     if (files.length === 0) return;
-    for (const file of files) {
-      try {
-        const data = await loadImageFile(file);
-        const el = createImageElement(
-          data.src,
-          data.naturalWidth,
-          data.naturalHeight,
-          slide.width,
-          slide.height,
-        );
-        addElement(el);
-      } catch {
-        // ignore failed file
-      }
-    }
+    await importImageFiles(files);
   };
 
   return (
