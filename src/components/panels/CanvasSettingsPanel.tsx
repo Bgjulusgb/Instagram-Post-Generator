@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useEditor } from '../../store/editorStore';
 import { SLIDE_FORMATS } from '../../types';
 import { NumberField } from '../ui/NumberField';
 import { cn } from '../../utils/cn';
+import { isElectron, storage } from '../../utils/storage';
+import { humanSize } from '../../utils/importImage';
+import { toast } from '../../hooks/useToast';
+import { Database, Trash2 } from 'lucide-react';
 
 export function CanvasSettingsPanel() {
   const slides = useEditor((s) => s.slides);
@@ -100,6 +104,8 @@ export function CanvasSettingsPanel() {
         </div>
       </div>
 
+      <StoragePanel />
+
       <div className="panel-section">
         <div className="panel-heading">Shortcuts</div>
         <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[10px] text-ink-300">
@@ -127,6 +133,102 @@ export function CanvasSettingsPanel() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function StoragePanel() {
+  const [quota, setQuota] = useState<{ usage: number; quota: number } | null>(null);
+  const slides = useEditor((s) => s.slides);
+  const resetProject = useEditor((s) => s.resetProject);
+  const saveToStorage = useEditor((s) => s.saveToStorage);
+  const lastSavedAt = useEditor((s) => s.lastSavedAt);
+
+  // Roughly count how many bytes our slides currently occupy in memory —
+  // a fast estimate based on the JSON length, accurate enough to surface
+  // when a project is getting unwieldy.
+  const memoryEstimate = JSON.stringify(slides).length;
+
+  useEffect(() => {
+    let cancelled = false;
+    storage.estimateQuota?.().then((q) => {
+      if (!cancelled) setQuota(q ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lastSavedAt]);
+
+  const percent = quota && quota.quota > 0 ? (quota.usage / quota.quota) * 100 : 0;
+
+  return (
+    <div className="panel-section">
+      <div className="panel-heading">
+        <span className="inline-flex items-center gap-1">
+          <Database size={11} strokeWidth={1.5} />
+          Storage
+        </span>
+        <span className="font-mono text-ink-500">{isElectron ? 'Disk' : 'IndexedDB'}</span>
+      </div>
+
+      <div className="space-y-2.5 text-[10px] text-ink-400">
+        <div className="flex items-center justify-between font-mono">
+          <span>Project</span>
+          <span className="text-white">{humanSize(memoryEstimate)}</span>
+        </div>
+        <div className="flex items-center justify-between font-mono">
+          <span>Slides</span>
+          <span className="text-white">{slides.length}</span>
+        </div>
+        {quota && (
+          <>
+            <div className="flex items-center justify-between font-mono">
+              <span>Used</span>
+              <span className="text-white">
+                {humanSize(quota.usage)} / {humanSize(quota.quota)}
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className={cn(
+                  'h-full transition-all',
+                  percent > 80 ? 'bg-rose-400' : percent > 50 ? 'bg-amber-300' : 'bg-emerald-400/80',
+                )}
+                style={{ width: `${Math.min(100, percent)}%` }}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-1.5">
+        <button
+          className="btn-outline gap-1"
+          onClick={async () => {
+            const r = await saveToStorage();
+            if (r.ok) toast.success('Saved', `${humanSize(memoryEstimate)} written`);
+            else toast.error('Save failed', r.error);
+          }}
+        >
+          Save now
+        </button>
+        <button
+          className="btn-outline gap-1 hover:text-rose-300"
+          onClick={() => {
+            if (
+              confirm(
+                'Clear the project and the saved copy? This cannot be undone — export first if needed.',
+              )
+            ) {
+              resetProject();
+              toast.info('Project reset', 'Started a fresh blank slide.');
+            }
+          }}
+        >
+          <Trash2 size={11} strokeWidth={1.5} />
+          Reset
+        </button>
       </div>
     </div>
   );

@@ -4,7 +4,9 @@ import { useEditor } from '../../store/editorStore';
 import { Slider } from '../ui/Slider';
 import { FILTER_PRESETS } from '../../utils/filters';
 import { extractPalette } from '../../utils/palette';
-import { loadImageFile } from '../../utils/image';
+import { processImageFile } from '../../utils/imagePreview';
+import { humanSize } from '../../utils/importImage';
+import { toast } from '../../hooks/useToast';
 import { Maximize2, Minimize2, Move, RotateCcw, Pipette, RefreshCw } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -25,18 +27,29 @@ export function ImagePropertiesPanel({ element }: Props) {
   // Replace just the photo source on the existing element. Frame, crop, and
   // adjustments are preserved (with a re-cover-crop so aspect stays correct).
   const replaceImage = async (file: File) => {
+    const toastId = file.size > 2_500_000 ? toast.loading('Processing image…') : null;
     try {
-      const data = await loadImageFile(file);
+      const processed = await processImageFile(file);
       updateById<ImageElement>(element.id, (el) => {
-        el.src = data.src;
-        el.naturalWidth = data.naturalWidth;
-        el.naturalHeight = data.naturalHeight;
+        el.src = processed.src;
+        el.previewSrc = processed.previewSrc;
+        el.naturalWidth = processed.naturalWidth;
+        el.naturalHeight = processed.naturalHeight;
       });
       // After updating naturalWidth/Height we must re-cover-crop so the new
       // photo isn't pinned to old crop coordinates that may no longer exist.
       setImageFitMode(element.id, element.fitMode);
-    } catch {
-      // ignore
+      if (toastId !== null)
+        toast.update(toastId, {
+          tone: 'success',
+          title: 'Photo replaced',
+          message: humanSize(processed.sourceBytes),
+          duration: 1800,
+        });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (toastId !== null) toast.update(toastId, { tone: 'error', title: 'Replace failed', message: msg });
+      else toast.error('Replace failed', msg);
     }
   };
 
@@ -146,7 +159,7 @@ export function ImagePropertiesPanel({ element }: Props) {
                 <div
                   className="mb-1 aspect-square overflow-hidden rounded"
                   style={{
-                    backgroundImage: `url(${element.src})`,
+                    backgroundImage: `url(${element.previewSrc || element.src})`,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     filter: simulatePresetCss(p.adjustments),
@@ -196,14 +209,18 @@ export function ImagePropertiesPanel({ element }: Props) {
             if (f) replaceImage(f);
           }}
         >
-          <img src={element.src} alt="Source" className="h-full w-full object-cover" />
+          <img
+            src={element.previewSrc || element.src}
+            alt="Source"
+            className="h-full w-full object-cover"
+          />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 text-[9px] text-white/80">
             Drop a new image here to replace
           </div>
         </div>
       </div>
 
-      <PalettePanel src={element.src} />
+      <PalettePanel src={element.previewSrc || element.src} />
 
       <div className="panel-section">
         <div className="panel-heading">

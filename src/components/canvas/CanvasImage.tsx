@@ -28,7 +28,10 @@ interface Props {
  * on-screen preview and the offscreen export renderer.
  */
 function CanvasImageInner({ element, onSelect, onChange, dragBoundFunc }: Props) {
-  const image = useHtmlImage(element.src);
+  // Live canvas uses the downscaled preview when one exists (bounded filter
+  // cache, no jank). Export uses element.src directly via the offscreen
+  // renderer so quality is preserved.
+  const image = useHtmlImage(element.previewSrc || element.src);
   const groupRef = useRef<Konva.Group>(null);
   const imgRef = useRef<Konva.Image>(null);
 
@@ -37,8 +40,14 @@ function CanvasImageInner({ element, onSelect, onChange, dragBoundFunc }: Props)
   // matches the frame aspect — no stretching.
   // For 'contain' we shrink the drawn image so it fits inside the frame
   // and is letterboxed.
+  //
+  // Crops are stored in source-pixel space (element.naturalWidth/Height).
+  // When we display the lower-resolution preview the loaded bitmap is
+  // smaller, so we scale the crop rect onto whichever bitmap actually
+  // rendered. The export renderer uses `src` directly so its crop is 1:1.
   const draw = useMemo(() => {
     if (!image) return null;
+    const imgScale = image.naturalWidth / element.naturalWidth;
     if (element.fitMode === 'contain') {
       const fit = computeContainRect(
         element.width,
@@ -51,7 +60,7 @@ function CanvasImageInner({ element, onSelect, onChange, dragBoundFunc }: Props)
         y: fit.y,
         width: fit.width,
         height: fit.height,
-        crop: { x: 0, y: 0, width: element.naturalWidth, height: element.naturalHeight },
+        crop: { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight },
       };
     }
     if (element.fitMode === 'fill') {
@@ -60,16 +69,20 @@ function CanvasImageInner({ element, onSelect, onChange, dragBoundFunc }: Props)
         y: 0,
         width: element.width,
         height: element.height,
-        crop: { x: 0, y: 0, width: element.naturalWidth, height: element.naturalHeight },
+        crop: { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight },
       };
     }
-    // cover
     return {
       x: 0,
       y: 0,
       width: element.width,
       height: element.height,
-      crop: element.crop,
+      crop: {
+        x: element.crop.x * imgScale,
+        y: element.crop.y * imgScale,
+        width: element.crop.width * imgScale,
+        height: element.crop.height * imgScale,
+      },
     };
   }, [
     image,

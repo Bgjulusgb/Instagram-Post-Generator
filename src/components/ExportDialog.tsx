@@ -95,13 +95,13 @@ export function ExportDialog({ open, onClose }: Props) {
 
       if (scope === 'current') {
         const blob = await exportSlideAsBlob(current, options);
-        downloadBlob(blob, `${sanitizeFilename(current.name)}.${formatExtension(format)}`);
+        await downloadBlob(blob, `${sanitizeFilename(current.name)}.${formatExtension(format)}`);
       } else if (scope === 'all-pdf') {
         const blob = await exportSlidesAsPdf(slides, { ...options, format: 'pdf' }, setProgress);
-        downloadBlob(blob, `carousel-${Date.now()}.pdf`);
+        await downloadBlob(blob, `carousel-${Date.now()}.pdf`);
       } else {
         const blob = await exportSlidesAsZip(slides, options, setProgress);
-        downloadBlob(blob, `carousel-${Date.now()}.zip`);
+        await downloadBlob(blob, `carousel-${Date.now()}.zip`);
       }
       onClose();
     } catch (err) {
@@ -186,6 +186,47 @@ export function ExportDialog({ open, onClose }: Props) {
               </div>
             </div>
           )}
+
+          <div>
+            <SectionLabel>Quality preset</SectionLabel>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              <Option
+                active={
+                  format === 'jpg' && Math.abs(scale - 2) < 0.05 && Math.abs(quality - 0.98) < 0.01 && sharpen
+                }
+                label="Instagram"
+                description="JPG · 2× · sharpen on"
+                onClick={() => {
+                  setFormat('jpg');
+                  setScale(2);
+                  setQuality(0.98);
+                  setSharpen(true);
+                  setTransparent(false);
+                }}
+              />
+              <Option
+                active={format === 'png' && Math.abs(scale - 4) < 0.05}
+                label="Print"
+                description="PNG · 4× lossless"
+                onClick={() => {
+                  setFormat('png');
+                  setScale(4);
+                  setSharpen(false);
+                }}
+              />
+              <Option
+                active={format === 'webp' && Math.abs(scale - 2) < 0.05}
+                label="Web"
+                description="WEBP · 2× efficient"
+                onClick={() => {
+                  setFormat('webp');
+                  setScale(2);
+                  setQuality(0.92);
+                  setSharpen(false);
+                }}
+              />
+            </div>
+          </div>
 
           <div>
             <SectionLabel>Resolution</SectionLabel>

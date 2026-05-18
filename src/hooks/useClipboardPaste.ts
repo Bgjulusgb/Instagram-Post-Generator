@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { createImageElement, createTextElement, useEditor } from '../store/editorStore';
-import { loadImageFile } from '../utils/image';
+import { createTextElement, useEditor } from '../store/editorStore';
+import { importImageFile } from '../utils/importImage';
 
 /**
  * Global clipboard handler:
@@ -28,30 +28,18 @@ export function useClipboardPaste() {
       );
       if (!slide) return;
 
-      // Look for image items first
       for (const item of Array.from(cd.items)) {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (!file) continue;
           e.preventDefault();
-          try {
-            const data = await loadImageFile(file);
-            const el = createImageElement(
-              data.src,
-              data.naturalWidth,
-              data.naturalHeight,
-              slide.width,
-              slide.height,
-            );
-            useEditor.getState().addElement(el);
-          } catch {
-            // ignore
-          }
+          // Goes through the unified processor → small preview + full
+          // export source, just like a drag-and-drop import.
+          await importImageFile(file);
           return;
         }
       }
 
-      // Then text
       const text = cd.getData('text/plain');
       if (text && text.trim()) {
         e.preventDefault();

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json.schemastore.org/electron-builder.json",
+  "appId": "com.carouselstudio.app",
+  "productName": "Carousel Studio",
+  "copyright": "Copyright © Carousel Studio",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "electron/main.cjs"
+  },
+  "asar": true,
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] },
+      { "target": "portable", "arch": ["x64"] }
+    ],
+    "artifactName": "Carousel-Studio-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Carousel Studio",
+    "uninstallDisplayName": "Carousel Studio",
+    "deleteAppDataOnUninstall": false
+  },
+  "mac": {
+    "target": [
+      { "target": "dmg", "arch": ["arm64", "x64"] }
+    ],
+    "category": "public.app-category.graphics-design",
+    "artifactName": "Carousel-Studio-${version}-${arch}.${ext}"
+  },
+  "linux": {
+    "target": [
+      { "target": "AppImage", "arch": ["x64"] }
+    ],
+    "category": "Graphics",
+    "artifactName": "Carousel-Studio-${version}.${ext}"
+  }
+}

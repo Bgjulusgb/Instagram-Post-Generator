@@ -72,7 +72,15 @@ export const DEFAULT_ADJUSTMENTS: ImageAdjustments = {
 
 export interface ImageElement extends BaseElement {
   type: 'image';
+  /** Export-quality source. Capped at MAX_SOURCE_DIMENSION during import. */
   src: string;
+  /**
+   * Live-canvas preview. Capped at MAX_PREVIEW_DIMENSION. The on-screen
+   * renderer uses this so Konva's filter cache stays small even when the
+   * user dropped a 24 MP photo. Optional for backward-compatibility with
+   * pre-preview projects; the renderer falls back to `src` if missing.
+   */
+  previewSrc?: string;
   naturalWidth: number;
   naturalHeight: number;
   /** How the image is fitted inside the element frame */
@@ -132,7 +140,10 @@ export type BackgroundFill =
   | { kind: 'gradient'; from: string; to: string; angle: number }
   | {
       kind: 'image';
+      /** Export-quality source. */
       src: string;
+      /** Optional canvas preview — falls back to `src` for old projects. */
+      previewSrc?: string;
       naturalWidth: number;
       naturalHeight: number;
       blur: number;

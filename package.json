@@ -3,12 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.cjs",
   "description": "Carousel Studio – A professional Instagram Carousel & Slide Editor for creators and photographers",
+  "homepage": "./",
   "scripts": {
     "dev": "vite",
+    "build:web": "tsc --noEmit && vite build",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "electron": "electron .",
+    "electron:dev": "concurrently -k -n vite,electron -c blue,magenta \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dist": "npm run build:web && electron-builder",
+    "dist:win": "npm run build:web && electron-builder --win",
+    "dist:mac": "npm run build:web && electron-builder --mac",
+    "dist:linux": "npm run build:web && electron-builder --linux",
+    "dist:dir": "npm run build:web && electron-builder --dir"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -19,7 +29,7 @@
     "immer": "^10.1.1",
     "framer-motion": "^11.11.10",
     "use-image": "^1.1.1",
-    "jspdf": "^2.5.2",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "file-saver": "^2.0.5",
     "nanoid": "^5.0.7",
@@ -32,9 +42,14 @@
     "@types/file-saver": "^2.0.7",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10"
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.1"
   }
 }

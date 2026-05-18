@@ -132,7 +132,7 @@ function SlideCardPreview({ slide }: { slide: Slide }) {
   if (slide.background.kind === 'image') {
     const bg = slide.background;
     const css = cssCropStyle(bg.crop, { width: bg.naturalWidth, height: bg.naturalHeight });
-    bgStyle.backgroundImage = `url(${bg.src})`;
+    bgStyle.backgroundImage = `url(${bg.previewSrc || bg.src})`;
     bgStyle.backgroundRepeat = 'no-repeat';
     bgStyle.backgroundSize = css.backgroundSize;
     bgStyle.backgroundPosition = css.backgroundPosition;
@@ -173,7 +173,7 @@ function SlideCardPreview({ slide }: { slide: Slide }) {
                 }}
               >
                 <img
-                  src={img.src}
+                  src={img.previewSrc || img.src}
                   style={{
                     position: 'absolute',
                     left: `${(fit.x / img.width) * 100}%`,
@@ -188,7 +188,7 @@ function SlideCardPreview({ slide }: { slide: Slide }) {
           return (
             <img
               key={el.id}
-              src={img.src}
+              src={img.previewSrc || img.src}
               style={{
                 ...common,
                 objectFit: img.fitMode === 'fill' ? 'fill' : 'cover',

@@ -19,10 +19,16 @@ export interface ExportOptions {
 }
 
 export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
+  // PNG by default — lossless, max quality, Instagram accepts it for posts.
   format: 'png',
+  // 2× pixel density covers Retina phones; Instagram itself caps inbound at
+  // 1080 px wide and re-encodes, so 2× is the sweet spot vs file size.
   scale: 2,
-  quality: 0.96,
+  // Near-max JPEG/WEBP quality. We avoid 1.0 only to keep file size sane
+  // for ZIP/PDF bundles; Instagram further re-encodes anything we upload.
+  quality: 0.98,
   transparent: false,
+  // Light unsharp mask compensates for Instagram's aggressive re-encode.
   sharpen: false,
 };
 
@@ -195,8 +201,24 @@ export async function exportSlidesAsZip(
   return zip.generateAsync({ type: 'blob', compression: 'STORE' });
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
+/**
+ * Save a blob to the user's machine. In Electron we route through the
+ * native save dialog so the OS picks where the file lands. In the browser
+ * we fall back to `file-saver`, which uses a hidden anchor + download attr.
+ */
+export async function downloadBlob(blob: Blob, filename: string): Promise<string | null> {
+  const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+  if (api?.isElectron) {
+    const bytes = await blob.arrayBuffer();
+    const m = /\.([a-z0-9]+)$/i.exec(filename);
+    const ext = m ? m[1].toLowerCase() : 'bin';
+    if (ext === 'zip' || ext === 'pdf') {
+      return await api.saveBundleFile(bytes, ext, filename);
+    }
+    return await api.saveImageFile(bytes, ext, filename);
+  }
   saveAs(blob, filename);
+  return null;
 }
 
 export function formatExtension(format: ExportFormat): string {
